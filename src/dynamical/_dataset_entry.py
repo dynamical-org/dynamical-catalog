@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     import xarray as xr
+    import zarr.abc
 
 
 class DatasetEntry:
@@ -35,6 +36,19 @@ class DatasetEntry:
     @property
     def status(self) -> str:
         return self._data["status"]
+
+    def get_store(self, engine: str = "zarr") -> zarr.abc.Store:
+        """Get a zarr Store for this dataset.
+
+        Args:
+            engine: "zarr" (default) or "icechunk".
+
+        Returns:
+            zarr.abc.Store
+        """
+        from dynamical._open import _get_store
+
+        return _get_store(self._data, engine=engine)
 
     def open(self, engine: str = "zarr", **kwargs: Any) -> xr.Dataset:
         """Open this dataset as an xarray Dataset.

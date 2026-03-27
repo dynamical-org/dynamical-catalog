@@ -18,3 +18,7 @@ temp = ds["temperature_2m"].sel(
 
 max_temp = temp.max().compute()
 print(f"Max forecast temperature in Tokyo: {max_temp.values:.1f} K")
+
+# Or get the raw icechunk store
+store = dynamical.get_store("noaa-gfs-forecast", engine="icechunk")
+print(f"Store type: {type(store).__name__}")

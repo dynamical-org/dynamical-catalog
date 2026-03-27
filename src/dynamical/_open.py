@@ -1,8 +1,23 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import xarray as xr
+import zarr.storage
+
+if TYPE_CHECKING:
+    import zarr.abc
+
+
+def _get_store(
+    dataset_data: dict[str, Any],
+    engine: str = "zarr",
+) -> zarr.abc.Store:
+    if engine == "zarr":
+        return zarr.storage.FsspecStore.from_url(dataset_data["zarr_url"])
+    if engine == "icechunk":
+        return _icechunk_store(dataset_data)
+    raise ValueError(f"Unknown engine {engine!r}. Use 'zarr' or 'icechunk'.")
 
 
 def _open_dataset(
@@ -10,18 +25,11 @@ def _open_dataset(
     engine: str = "zarr",
     **kwargs: Any,
 ) -> xr.Dataset:
-    if engine == "zarr":
-        return _open_zarr(dataset_data, **kwargs)
-    if engine == "icechunk":
-        return _open_icechunk(dataset_data, **kwargs)
-    raise ValueError(f"Unknown engine {engine!r}. Use 'zarr' or 'icechunk'.")
+    store = _get_store(dataset_data, engine=engine)
+    return xr.open_zarr(store, **kwargs)
 
 
-def _open_zarr(dataset_data: dict[str, Any], **kwargs: Any) -> xr.Dataset:
-    return xr.open_zarr(dataset_data["zarr_url"], **kwargs)
-
-
-def _open_icechunk(dataset_data: dict[str, Any], **kwargs: Any) -> xr.Dataset:
+def _icechunk_store(dataset_data: dict[str, Any]) -> zarr.abc.Store:
     try:
         import icechunk
     except ImportError:
@@ -44,6 +52,4 @@ def _open_icechunk(dataset_data: dict[str, Any], **kwargs: Any) -> xr.Dataset:
     )
     repo = icechunk.Repository.open(storage)
     session = repo.readonly_session("main")
-    store = session.store
-
-    return xr.open_zarr(store, **{"chunks": None, **kwargs})
+    return session.store

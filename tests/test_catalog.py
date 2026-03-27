@@ -110,15 +110,32 @@ class TestDatasetEntry:
             SAMPLE_DATASETS["noaa-gfs-forecast"], engine="zarr", chunks={"time": 10}
         )
 
+    @patch("dynamical._open._get_store")
+    def test_get_store_delegates(self, mock_get_store):
+        entry = DatasetEntry(SAMPLE_DATASETS["noaa-gfs-forecast"])
+        entry.get_store(engine="icechunk")
+        mock_get_store.assert_called_once_with(
+            SAMPLE_DATASETS["noaa-gfs-forecast"], engine="icechunk"
+        )
+
 
 class TestTopLevelAPI:
     @patch("dynamical._stac._datasets", SAMPLE_DATASETS)
-    @patch("dynamical._open.xr")
-    def test_open_normalizes_underscores(self, mock_xr):
+    @patch("dynamical._open._open_dataset")
+    def test_open_normalizes_underscores(self, mock_open):
         import dynamical
         dynamical.open("noaa_gfs_forecast")
-        mock_xr.open_zarr.assert_called_once_with(
-            "https://data.dynamical.org/noaa/gfs/forecast/latest.zarr"
+        mock_open.assert_called_once_with(
+            SAMPLE_DATASETS["noaa-gfs-forecast"], engine="zarr"
+        )
+
+    @patch("dynamical._stac._datasets", SAMPLE_DATASETS)
+    @patch("dynamical._open._get_store")
+    def test_get_store_normalizes_underscores(self, mock_get_store):
+        import dynamical
+        dynamical.get_store("noaa_gfs_forecast")
+        mock_get_store.assert_called_once_with(
+            SAMPLE_DATASETS["noaa-gfs-forecast"], engine="zarr"
         )
 
     @patch("dynamical._stac._datasets", SAMPLE_DATASETS)

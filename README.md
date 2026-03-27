@@ -16,11 +16,14 @@ pip install dynamical[icechunk]
 ```python
 import dynamical
 
-# Open a dataset (zarr v3)
+# Open a dataset as xarray (zarr v3)
 ds = dynamical.open("noaa-gfs-forecast")
 
 # Open via icechunk
 ds = dynamical.open("noaa-gfs-forecast", engine="icechunk")
+
+# Get the underlying zarr store
+store = dynamical.get_store("noaa-gfs-forecast")
 
 # Tab-completable catalog
 ds = dynamical.catalog.noaa_gfs_forecast.open()
