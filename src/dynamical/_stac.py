@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import json
 import threading
 import urllib.error
@@ -16,9 +17,16 @@ _lock = threading.Lock()
 _datasets: dict[str, dict[str, Any]] | None = None
 
 
+def _user_agent() -> str:
+    from dynamical import __version__
+
+    return f"dynamical-py/{__version__}"
+
+
 def _fetch_json(url: str) -> Any:
+    req = urllib.request.Request(url, headers={"User-Agent": _user_agent()})
     try:
-        with urllib.request.urlopen(url, timeout=_TIMEOUT_SECONDS) as resp:
+        with urllib.request.urlopen(req, timeout=_TIMEOUT_SECONDS) as resp:
             return json.loads(resp.read())
     except urllib.error.URLError as e:
         raise RuntimeError(
@@ -59,6 +67,7 @@ def load_catalog() -> dict[str, dict[str, Any]]:
     """Fetch the STAC catalog and all child collections.
 
     Results are cached in-process after the first call.
+    Child collections are fetched in parallel for faster startup.
     """
     global _datasets
     if _datasets is not None:
@@ -70,11 +79,13 @@ def load_catalog() -> dict[str, dict[str, Any]]:
 
         catalog = _fetch_json(STAC_CATALOG_URL)
         child_links = [link for link in catalog["links"] if link["rel"] == "child"]
+        urls = [urljoin(STAC_CATALOG_URL, link["href"]) for link in child_links]
+
+        with concurrent.futures.ThreadPoolExecutor() as pool:
+            collections = pool.map(_fetch_json, urls)
 
         datasets: dict[str, dict[str, Any]] = {}
-        for link in child_links:
-            url = urljoin(STAC_CATALOG_URL, link["href"])
-            collection = _fetch_json(url)
+        for collection in collections:
             parsed = _parse_collection(collection)
             datasets[parsed["id"]] = parsed
 

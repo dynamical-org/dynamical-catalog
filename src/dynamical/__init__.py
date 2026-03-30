@@ -2,21 +2,22 @@
 
 from __future__ import annotations
 
+from importlib.metadata import version
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     import xarray as xr
-    import zarr.abc
+    from zarr.abc.store import Store
 
 from dynamical._catalog import Catalog
 from dynamical._stac import clear_cache, load_catalog
 
-__version__ = "0.1.0"
+__version__ = version("dynamical")
 
 catalog = Catalog(load_catalog)
 
 
-def get_store(dataset_id: str, engine: str = "zarr") -> zarr.abc.Store:
+def get_store(dataset_id: str, engine: str = "zarr") -> Store:
     """Get a zarr Store for a dynamical.org dataset.
 
     Args:
@@ -49,7 +50,7 @@ def open(dataset_id: str, engine: str = "zarr", **kwargs: Any) -> xr.Dataset:
     return _open_dataset(_resolve(dataset_id), engine=engine, **kwargs)
 
 
-def list() -> list[str]:
+def list() -> list[str]:  # type: ignore[valid-type]
     """List available dataset IDs."""
     return sorted(load_catalog().keys())
 
@@ -59,9 +60,7 @@ def _resolve(dataset_id: str) -> dict[str, Any]:
     normalized_id = dataset_id.replace("_", "-")
     if normalized_id not in datasets:
         available = ", ".join(sorted(datasets.keys()))
-        raise ValueError(
-            f"Unknown dataset {dataset_id!r}. Available: {available}"
-        )
+        raise ValueError(f"Unknown dataset {dataset_id!r}. Available: {available}")
     return datasets[normalized_id]
 
 

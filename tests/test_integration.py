@@ -6,42 +6,59 @@ Run with: pytest -m slow
 import pytest
 import xarray as xr
 
+import dynamical
+
 pytestmark = pytest.mark.slow
 
 
-class TestStacCatalogReachable:
-    def test_stac_catalog_loads(self):
-        import dynamical._stac as stac_mod
-        from dynamical._stac import load_catalog
+@pytest.fixture(autouse=True)
+def fresh_catalog():
+    """Ensure each test starts with a fresh catalog fetch."""
+    dynamical.clear_cache()
+    yield
+    dynamical.clear_cache()
 
-        stac_mod._datasets = None  # force fresh fetch
-        datasets = load_catalog()
+
+class TestStacCatalog:
+    def test_catalog_loads(self):
+        datasets = dynamical.list()
         assert len(datasets) > 0
         assert "noaa-gfs-forecast" in datasets
-        stac_mod._datasets = None  # cleanup
+
+    def test_all_datasets_have_zarr_url(self):
+        for dataset_id in dynamical.list():
+            entry = getattr(dynamical.catalog, dataset_id.replace("-", "_"))
+            assert entry.zarr_url, f"{dataset_id} missing zarr_url"
+
+    def test_catalog_entry_metadata(self):
+        entry = dynamical.catalog.noaa_gfs_forecast
+        assert entry.id == "noaa-gfs-forecast"
+        assert entry.name
+        assert entry.description
 
 
 class TestOpenZarr:
     def test_open_gfs_forecast(self):
-        import dynamical
-
         ds = dynamical.open("noaa-gfs-forecast")
         assert isinstance(ds, xr.Dataset)
         assert len(ds.data_vars) > 0
 
     def test_open_gfs_analysis(self):
-        import dynamical
-
         ds = dynamical.open("noaa-gfs-analysis")
         assert isinstance(ds, xr.Dataset)
         assert len(ds.data_vars) > 0
+
+    def test_all_datasets_open(self):
+        """Verify every dataset in the catalog can be opened without error."""
+        for dataset_id in dynamical.list():
+            ds = dynamical.open(dataset_id)
+            assert isinstance(ds, xr.Dataset), f"{dataset_id} did not return a Dataset"
+            assert len(ds.data_vars) > 0, f"{dataset_id} has no data variables"
 
 
 class TestOpenIcechunk:
     def test_open_icechunk_gfs_forecast(self):
         icechunk = pytest.importorskip("icechunk")  # noqa: F841
-        import dynamical
-
         ds = dynamical.open("noaa-gfs-forecast", engine="icechunk")
         assert isinstance(ds, xr.Dataset)
         assert len(ds.data_vars) > 0

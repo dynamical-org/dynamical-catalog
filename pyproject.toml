@@ -21,6 +21,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Scientific/Engineering :: Atmospheric Science",
 ]
 dependencies = [
@@ -38,7 +39,7 @@ Issues = "https://github.com/dynamical-org/dynamical-py/issues"
 
 [project.optional-dependencies]
 icechunk = ["icechunk>=1.0.0"]
-dev = ["pytest", "pytest-mock"]
+dev = ["pytest", "pytest-mock", "ruff", "mypy"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/dynamical"]
@@ -48,3 +49,18 @@ addopts = "-m 'not slow'"
 markers = [
     "slow: marks tests as slow (hit real network, run with pytest -m slow)",
 ]
+
+[tool.ruff]
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_unused_configs = true
+disallow_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = ["zarr.*", "icechunk.*", "fsspec.*"]
+ignore_missing_imports = true

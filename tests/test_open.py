@@ -40,14 +40,15 @@ class TestGetStoreIcechunk:
             anonymous=True,
         )
         mock_icechunk.Repository.open.assert_called_once()
-        assert store is mock_icechunk.Repository.open.return_value.readonly_session.return_value.store
+        mock_repo = mock_icechunk.Repository.open.return_value
+        assert store is mock_repo.readonly_session.return_value.store
 
     def test_no_icechunk_config_raises(self):
         mock_icechunk = MagicMock()
         data = {"id": "test", "zarr_url": "https://example.com/test.zarr"}
 
         with patch.dict("sys.modules", {"icechunk": mock_icechunk}):
-            with pytest.raises(ValueError, match="does not have icechunk configuration"):
+            with pytest.raises(ValueError, match="does not have icechunk"):
                 _get_store(data, engine="icechunk")
 
 

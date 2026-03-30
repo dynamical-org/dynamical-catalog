@@ -6,13 +6,13 @@ import xarray as xr
 import zarr.storage
 
 if TYPE_CHECKING:
-    import zarr.abc
+    from zarr.abc.store import Store
 
 
 def _get_store(
     dataset_data: dict[str, Any],
     engine: str = "zarr",
-) -> zarr.abc.Store:
+) -> Store:
     if engine == "zarr":
         return zarr.storage.FsspecStore.from_url(dataset_data["zarr_url"])
     if engine == "icechunk":
@@ -29,7 +29,7 @@ def _open_dataset(
     return xr.open_zarr(store, **kwargs)
 
 
-def _icechunk_store(dataset_data: dict[str, Any]) -> zarr.abc.Store:
+def _icechunk_store(dataset_data: dict[str, Any]) -> Store:
     try:
         import icechunk
     except ImportError:

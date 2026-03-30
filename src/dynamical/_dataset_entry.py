@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     import xarray as xr
-    import zarr.abc
+    from zarr.abc.store import Store
 
 
 class DatasetEntry:
@@ -37,7 +37,7 @@ class DatasetEntry:
     def status(self) -> str:
         return self._data["status"]
 
-    def get_store(self, engine: str = "zarr") -> zarr.abc.Store:
+    def get_store(self, engine: str = "zarr") -> Store:
         """Get a zarr Store for this dataset.
 
         Args:

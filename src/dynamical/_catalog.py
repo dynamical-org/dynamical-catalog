@@ -31,9 +31,7 @@ class Catalog:
         datasets = self._datasets
         if dataset_id not in datasets:
             available = ", ".join(self._dataset_attr_names())
-            raise AttributeError(
-                f"No dataset named {name!r}. Available: {available}"
-            )
+            raise AttributeError(f"No dataset named {name!r}. Available: {available}")
         if dataset_id not in self._entries:
             self._entries[dataset_id] = DatasetEntry(datasets[dataset_id])
         return self._entries[dataset_id]

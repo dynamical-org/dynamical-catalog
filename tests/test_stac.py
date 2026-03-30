@@ -1,9 +1,13 @@
+import urllib.error
 from unittest.mock import patch
 
 import pytest
 
 import dynamical._stac as stac
 
+_CATALOG_URL = "https://dynamical.org/stac/catalog.json"
+_COLLECTION_URL = "https://dynamical.org/stac/noaa-gfs-forecast/collection.json"
+_ZARR_URL = "https://data.dynamical.org/noaa/gfs/forecast/latest.zarr"
 
 MOCK_CATALOG = {
     "type": "Catalog",
@@ -50,10 +54,47 @@ MOCK_COLLECTION = {
 }
 
 
+class TestFetchJson:
+    def test_network_error_raises_runtime_error(self):
+        with patch.object(
+            stac.urllib.request,
+            "urlopen",
+            side_effect=urllib.error.URLError("connection refused"),
+        ):
+            with pytest.raises(RuntimeError, match="Failed to fetch"):
+                stac._fetch_json("https://dynamical.org/stac/catalog.json")
+
+    def test_http_error_raises_runtime_error(self):
+        with patch.object(
+            stac.urllib.request,
+            "urlopen",
+            side_effect=urllib.error.HTTPError(
+                "https://example.com", 403, "Forbidden", {}, None
+            ),
+        ):
+            with pytest.raises(RuntimeError, match="Failed to fetch"):
+                stac._fetch_json("https://example.com")
+
+    def test_sends_user_agent_header(self):
+        """Verify that _fetch_json sends a dynamical-py User-Agent."""
+        import dynamical
+
+        with patch.object(stac.urllib.request, "urlopen") as mock_urlopen:
+            mock_urlopen.return_value.__enter__ = lambda s: s
+            mock_urlopen.return_value.__exit__ = lambda *a: None
+            mock_urlopen.return_value.read.return_value = b"{}"
+
+            stac._fetch_json("https://example.com")
+
+            request_obj = mock_urlopen.call_args[0][0]
+            expected_ua = f"dynamical-py/{dynamical.__version__}"
+            assert request_obj.get_header("User-agent") == expected_ua
+
+
 class TestParseCollection:
     def test_parses_zarr_url(self):
         result = stac._parse_collection(MOCK_COLLECTION)
-        assert result["zarr_url"] == "https://data.dynamical.org/noaa/gfs/forecast/latest.zarr"
+        assert result["zarr_url"] == _ZARR_URL
 
     def test_parses_icechunk_config(self):
         result = stac._parse_collection(MOCK_COLLECTION)
@@ -62,7 +103,8 @@ class TestParseCollection:
         assert result["icechunk"]["region"] == "us-west-2"
 
     def test_no_icechunk_asset(self):
-        collection = {**MOCK_COLLECTION, "assets": {"zarr": MOCK_COLLECTION["assets"]["zarr"]}}
+        zarr_only = {"zarr": MOCK_COLLECTION["assets"]["zarr"]}
+        collection = {**MOCK_COLLECTION, "assets": zarr_only}
         result = stac._parse_collection(collection)
         assert "icechunk" not in result
 
@@ -81,21 +123,47 @@ class TestParseCollection:
 class TestLoadCatalog:
     @pytest.fixture(autouse=True)
     def reset_cache(self):
-        stac._datasets = None
+        stac.clear_cache()
         yield
-        stac._datasets = None
+        stac.clear_cache()
 
     def test_loads_and_caches(self):
         responses = {
-            "https://dynamical.org/stac/catalog.json": MOCK_CATALOG,
-            "https://dynamical.org/stac/noaa-gfs-forecast/collection.json": MOCK_COLLECTION,
+            _CATALOG_URL: MOCK_CATALOG,
+            _COLLECTION_URL: MOCK_COLLECTION,
         }
-
-        with patch.object(stac, "_fetch_json", side_effect=lambda url: responses[url]):
+        fake = patch.object(stac, "_fetch_json", side_effect=lambda url: responses[url])
+        with fake:
             result = stac.load_catalog()
             assert "noaa-gfs-forecast" in result
-            assert result["noaa-gfs-forecast"]["zarr_url"] == "https://data.dynamical.org/noaa/gfs/forecast/latest.zarr"
+            assert result["noaa-gfs-forecast"]["zarr_url"] == _ZARR_URL
 
             # Second call should use cache (no additional fetch)
             result2 = stac.load_catalog()
             assert result2 is result
+
+
+class TestClearCache:
+    def test_clear_cache_forces_refetch(self):
+        responses = {
+            _CATALOG_URL: MOCK_CATALOG,
+            _COLLECTION_URL: MOCK_COLLECTION,
+        }
+        fake = patch.object(stac, "_fetch_json", side_effect=lambda url: responses[url])
+        with fake as mock_fetch:
+            stac.load_catalog()
+            call_count_after_first = mock_fetch.call_count
+
+            stac.clear_cache()
+            stac.load_catalog()
+
+            # Should have fetched again after clearing
+            assert mock_fetch.call_count > call_count_after_first
+
+        stac.clear_cache()
+
+    def test_clear_cache_is_exported(self):
+        import dynamical
+
+        assert hasattr(dynamical, "clear_cache")
+        assert dynamical.clear_cache is stac.clear_cache
