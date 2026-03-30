@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+import icechunk
 import xarray as xr
 import zarr.storage
 
@@ -30,14 +31,6 @@ def _open_dataset(
 
 
 def _icechunk_store(dataset_data: dict[str, Any]) -> Store:
-    try:
-        import icechunk
-    except ImportError:
-        raise ImportError(
-            "The 'icechunk' package is required for engine='icechunk'. "
-            "Install it with: pip install dynamical[icechunk]"
-        ) from None
-
     config = dataset_data.get("icechunk")
     if config is None:
         raise ValueError(

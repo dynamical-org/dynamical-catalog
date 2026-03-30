@@ -18,8 +18,8 @@ class TestGetStoreZarr:
 
 
 class TestGetStoreIcechunk:
-    def test_returns_icechunk_store(self):
-        mock_icechunk = MagicMock()
+    @patch("dynamical._open.icechunk")
+    def test_returns_icechunk_store(self, mock_icechunk):
         data = {
             "id": "test",
             "zarr_url": "https://example.com/test.zarr",
@@ -30,8 +30,7 @@ class TestGetStoreIcechunk:
             },
         }
 
-        with patch.dict("sys.modules", {"icechunk": mock_icechunk}):
-            store = _get_store(data, engine="icechunk")
+        store = _get_store(data, engine="icechunk")
 
         mock_icechunk.s3_storage.assert_called_once_with(
             bucket="dynamical-test",
@@ -43,13 +42,12 @@ class TestGetStoreIcechunk:
         mock_repo = mock_icechunk.Repository.open.return_value
         assert store is mock_repo.readonly_session.return_value.store
 
-    def test_no_icechunk_config_raises(self):
-        mock_icechunk = MagicMock()
+    @patch("dynamical._open.icechunk")
+    def test_no_icechunk_config_raises(self, _mock_icechunk):
         data = {"id": "test", "zarr_url": "https://example.com/test.zarr"}
 
-        with patch.dict("sys.modules", {"icechunk": mock_icechunk}):
-            with pytest.raises(ValueError, match="does not have icechunk"):
-                _get_store(data, engine="icechunk")
+        with pytest.raises(ValueError, match="does not have icechunk"):
+            _get_store(data, engine="icechunk")
 
 
 class TestGetStoreUnknownEngine:

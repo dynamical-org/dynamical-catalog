@@ -6,9 +6,6 @@ Load [dynamical.org](https://dynamical.org) weather datasets in one line.
 
 ```bash
 pip install dynamical
-
-# For icechunk support:
-pip install dynamical[icechunk]
 ```
 
 ## Usage

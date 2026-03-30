@@ -29,6 +29,7 @@ dependencies = [
     "zarr>=3.0.8",
     "fsspec",
     "aiohttp",
+    "icechunk>=1.0.0",
 ]
 
 [project.urls]
@@ -38,7 +39,6 @@ Catalog = "https://dynamical.org/catalog/"
 Issues = "https://github.com/dynamical-org/dynamical-py/issues"
 
 [project.optional-dependencies]
-icechunk = ["icechunk>=1.0.0"]
 dev = ["pytest", "pytest-mock", "ruff", "mypy"]
 
 [tool.hatch.build.targets.wheel]

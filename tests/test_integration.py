@@ -58,7 +58,6 @@ class TestOpenZarr:
 
 class TestOpenIcechunk:
     def test_open_icechunk_gfs_forecast(self):
-        icechunk = pytest.importorskip("icechunk")  # noqa: F841
         ds = dynamical.open("noaa-gfs-forecast", engine="icechunk")
         assert isinstance(ds, xr.Dataset)
         assert len(ds.data_vars) > 0

@@ -1,7 +1,4 @@
-"""Open a dataset via Icechunk for transactional, versioned access.
-
-Requires: pip install dynamical[icechunk]
-"""
+"""Open a dataset via Icechunk for transactional, versioned access."""
 
 import dynamical
 
