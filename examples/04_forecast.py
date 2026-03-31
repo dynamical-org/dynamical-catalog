@@ -2,13 +2,15 @@
 
 import dynamical
 
+dynamical.identify("dynamical-py example")
+
 # Open the GFS forecast dataset
 ds = dynamical.open("noaa-gfs-forecast")
 
 # Select one forecast initialization and a location
 forecast = ds["temperature_2m"].sel(
     init_time="2025-06-01T00",
-    latitude=51.5,     # London
+    latitude=51.5,  # London
     longitude=-0.1,
     method="nearest",
 )

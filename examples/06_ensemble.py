@@ -2,13 +2,15 @@
 
 import dynamical
 
+dynamical.identify("dynamical-py example")
+
 # Open the GEFS 35-day ensemble forecast
 ds = dynamical.open("noaa-gefs-forecast-35-day")
 
 # Select one initialization and location
 forecast = ds["temperature_2m"].sel(
     init_time="2025-06-01T00",
-    latitude=48.9,     # Paris
+    latitude=48.9,  # Paris
     longitude=2.3,
     method="nearest",
 )

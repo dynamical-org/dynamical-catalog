@@ -2,12 +2,14 @@
 
 import dynamical
 
+dynamical.identify("dynamical-py example")
+
 # Open the MRMS hourly precipitation analysis (~1km resolution, CONUS only)
 ds = dynamical.open("noaa-mrms-conus-analysis-hourly")
 
 # Get precipitation at a point over a time range
 precip = ds["precipitation_surface"].sel(
-    latitude=39.1,     # Kansas City, MO
+    latitude=39.1,  # Kansas City, MO
     longitude=-94.6,
     method="nearest",
     time=slice("2025-06-01", "2025-06-07"),

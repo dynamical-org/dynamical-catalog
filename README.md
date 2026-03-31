@@ -13,6 +13,9 @@ pip install dynamical
 ```python
 import dynamical
 
+# Identify yourself (included in User-Agent header)
+dynamical.identify("you@example.com")
+
 # Open a dataset as xarray (zarr v3)
 ds = dynamical.open("noaa-gfs-forecast")
 

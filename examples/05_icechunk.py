@@ -2,13 +2,15 @@
 
 import dynamical
 
+dynamical.identify("dynamical-py example")
+
 # Open the same dataset through Icechunk instead of Zarr v3
 ds = dynamical.open("noaa-gfs-forecast", engine="icechunk")
 
 # Usage is identical — it's still an xarray Dataset
 temp = ds["temperature_2m"].sel(
     init_time="2025-06-01T00",
-    latitude=35.7,     # Tokyo
+    latitude=35.7,  # Tokyo
     longitude=139.7,
     method="nearest",
 )

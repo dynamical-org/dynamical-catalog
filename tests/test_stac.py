@@ -79,16 +79,41 @@ class TestFetchJson:
         """Verify that _fetch_json sends a dynamical-py User-Agent."""
         import dynamical
 
-        with patch.object(stac.urllib.request, "urlopen") as mock_urlopen:
-            mock_urlopen.return_value.__enter__ = lambda s: s
-            mock_urlopen.return_value.__exit__ = lambda *a: None
-            mock_urlopen.return_value.read.return_value = b"{}"
+        old_id = stac._identifier
+        stac._identifier = None
+        try:
+            with patch.object(stac.urllib.request, "urlopen") as mock_urlopen:
+                mock_urlopen.return_value.__enter__ = lambda s: s
+                mock_urlopen.return_value.__exit__ = lambda *a: None
+                mock_urlopen.return_value.read.return_value = b"{}"
 
-            stac._fetch_json("https://example.com")
+                stac._fetch_json("https://example.com")
 
-            request_obj = mock_urlopen.call_args[0][0]
-            expected_ua = f"dynamical-py/{dynamical.__version__}"
-            assert request_obj.get_header("User-agent") == expected_ua
+                req = mock_urlopen.call_args[0][0]
+                expected = f"dynamical-py/{dynamical.__version__}"
+                assert req.get_header("User-agent") == expected
+        finally:
+            stac._identifier = old_id
+
+    def test_user_agent_includes_identifier(self):
+        import dynamical
+
+        old_id = stac._identifier
+        stac.set_identifier("test@example.com")
+        try:
+            with patch.object(stac.urllib.request, "urlopen") as mock_urlopen:
+                mock_urlopen.return_value.__enter__ = lambda s: s
+                mock_urlopen.return_value.__exit__ = lambda *a: None
+                mock_urlopen.return_value.read.return_value = b"{}"
+
+                stac._fetch_json("https://example.com")
+
+                req = mock_urlopen.call_args[0][0]
+                v = dynamical.__version__
+                expected = f"dynamical-py/{v} (test@example.com)"
+                assert req.get_header("User-agent") == expected
+        finally:
+            stac._identifier = old_id
 
 
 class TestParseCollection:
@@ -167,3 +192,18 @@ class TestClearCache:
 
         assert hasattr(dynamical, "clear_cache")
         assert dynamical.clear_cache is stac.clear_cache
+
+
+class TestIdentifier:
+    def test_set_identifier_updates_module_state(self):
+        old_id = stac._identifier
+        try:
+            stac.set_identifier("acme@example.com")
+            assert stac._identifier == "acme@example.com"
+        finally:
+            stac._identifier = old_id
+
+    def test_identify_is_exported(self):
+        import dynamical
+
+        assert hasattr(dynamical, "identify")

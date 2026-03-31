@@ -2,6 +2,8 @@
 
 import dynamical
 
+dynamical.identify("dynamical-py example")
+
 # List all available dataset IDs
 print("Available datasets:")
 for dataset_id in dynamical.list():

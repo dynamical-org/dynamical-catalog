@@ -15,12 +15,21 @@ STAC_CATALOG_URL = "https://dynamical.org/stac/catalog.json"
 _TIMEOUT_SECONDS = 30
 _lock = threading.Lock()
 _datasets: dict[str, dict[str, Any]] | None = None
+_identifier: str | None = None
+
+
+def set_identifier(identifier: str) -> None:
+    global _identifier
+    _identifier = identifier
 
 
 def _user_agent() -> str:
     from dynamical import __version__
 
-    return f"dynamical-py/{__version__}"
+    ua = f"dynamical-py/{__version__}"
+    if _identifier:
+        ua += f" ({_identifier})"
+    return ua
 
 
 def _fetch_json(url: str) -> Any:

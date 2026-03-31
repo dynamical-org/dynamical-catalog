@@ -126,3 +126,14 @@ class TestTopLevelAPI:
         import dynamical
 
         assert isinstance(dynamical.catalog, Catalog)
+
+    def test_identify_sets_identifier(self):
+        import dynamical
+        import dynamical._stac as stac_mod
+
+        old_id = stac_mod._identifier
+        try:
+            dynamical.identify("marshall@dynamical.org")
+            assert stac_mod._identifier == "marshall@dynamical.org"
+        finally:
+            stac_mod._identifier = old_id
