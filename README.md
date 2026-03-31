@@ -13,7 +13,7 @@ pip install dynamical
 ```python
 import dynamical
 
-# Identify yourself (included in User-Agent header)
+# Optional: let us know who you are so we can improve the catalog!
 dynamical.identify("you@example.com")
 
 # Open a dataset as xarray (zarr v3)
