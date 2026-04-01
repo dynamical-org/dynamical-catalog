@@ -71,9 +71,9 @@ class TestDatasetEntry:
     @patch("dynamical_catalog._open._open_dataset")
     def test_open_delegates_to_open_dataset(self, mock_open):
         entry = DatasetEntry(SAMPLE_DATASETS["noaa-gfs-forecast"])
-        entry.open(engine="zarr", chunks={"time": 10})
+        entry.open(engine="icechunk", chunks={"time": 10})
         mock_open.assert_called_once_with(
-            SAMPLE_DATASETS["noaa-gfs-forecast"], engine="zarr", chunks={"time": 10}
+            SAMPLE_DATASETS["noaa-gfs-forecast"], engine="icechunk", chunks={"time": 10}
         )
 
     @patch("dynamical_catalog._open._get_store")
@@ -93,7 +93,7 @@ class TestTopLevelAPI:
 
         dynamical_catalog.open("noaa_gfs_forecast")
         mock_open.assert_called_once_with(
-            SAMPLE_DATASETS["noaa-gfs-forecast"], engine="zarr"
+            SAMPLE_DATASETS["noaa-gfs-forecast"], engine="icechunk"
         )
 
     @patch("dynamical_catalog._stac._datasets", SAMPLE_DATASETS)
@@ -103,7 +103,7 @@ class TestTopLevelAPI:
 
         dynamical_catalog.get_store("noaa_gfs_forecast")
         mock_get_store.assert_called_once_with(
-            SAMPLE_DATASETS["noaa-gfs-forecast"], engine="zarr"
+            SAMPLE_DATASETS["noaa-gfs-forecast"], engine="icechunk"
         )
 
     @patch("dynamical_catalog._stac._datasets", SAMPLE_DATASETS)

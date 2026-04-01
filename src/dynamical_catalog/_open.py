@@ -12,18 +12,20 @@ if TYPE_CHECKING:
 
 def _get_store(
     dataset_data: dict[str, Any],
-    engine: str = "zarr",
+    engine: str = "icechunk",
 ) -> Store:
+    if engine == "icechunk":
+        if dataset_data.get("icechunk") is not None:
+            return _icechunk_store(dataset_data)
+        return zarr.storage.FsspecStore.from_url(dataset_data["zarr_url"])
     if engine == "zarr":
         return zarr.storage.FsspecStore.from_url(dataset_data["zarr_url"])
-    if engine == "icechunk":
-        return _icechunk_store(dataset_data)
-    raise ValueError(f"Unknown engine {engine!r}. Use 'zarr' or 'icechunk'.")
+    raise ValueError(f"Unknown engine {engine!r}. Use 'icechunk' or 'zarr'.")
 
 
 def _open_dataset(
     dataset_data: dict[str, Any],
-    engine: str = "zarr",
+    engine: str = "icechunk",
     **kwargs: Any,
 ) -> xr.Dataset:
     store = _get_store(dataset_data, engine=engine)

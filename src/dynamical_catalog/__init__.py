@@ -29,13 +29,13 @@ def identify(identifier: str) -> None:
     set_identifier(identifier)
 
 
-def get_store(dataset_id: str, engine: str = "zarr") -> Store:
+def get_store(dataset_id: str, engine: str = "icechunk") -> Store:
     """Get a zarr Store for a dynamical.org dataset.
 
     Args:
         dataset_id: Dataset identifier (e.g. "noaa-gfs-forecast").
             Underscores are also accepted (e.g. "noaa_gfs_forecast").
-        engine: "zarr" (default) or "icechunk".
+        engine: "icechunk" (default) or "zarr".
 
     Returns:
         zarr.abc.Store
@@ -45,13 +45,13 @@ def get_store(dataset_id: str, engine: str = "zarr") -> Store:
     return _get_store(_resolve(dataset_id), engine=engine)
 
 
-def open(dataset_id: str, engine: str = "zarr", **kwargs: Any) -> xr.Dataset:
+def open(dataset_id: str, engine: str = "icechunk", **kwargs: Any) -> xr.Dataset:
     """Open a dynamical.org dataset by ID.
 
     Args:
         dataset_id: Dataset identifier (e.g. "noaa-gfs-forecast").
             Underscores are also accepted (e.g. "noaa_gfs_forecast").
-        engine: "zarr" (default) or "icechunk".
+        engine: "icechunk" (default) or "zarr".
         **kwargs: Passed through to xr.open_zarr().
 
     Returns:

@@ -16,11 +16,11 @@ import dynamical_catalog
 # Optional: let us know who you are so we can improve the catalog!
 dynamical_catalog.identify("you@example.com")
 
-# Open a dataset as xarray (zarr v3)
+# Open a dataset as xarray (uses icechunk by default)
 ds = dynamical_catalog.open("noaa-gfs-forecast")
 
-# Open via icechunk
-ds = dynamical_catalog.open("noaa-gfs-forecast", engine="icechunk")
+# Or open via plain zarr
+ds = dynamical_catalog.open("noaa-gfs-forecast", engine="zarr")
 
 # Get the underlying zarr store
 store = dynamical_catalog.get_store("noaa-gfs-forecast")

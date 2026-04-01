@@ -37,11 +37,11 @@ class DatasetEntry:
     def status(self) -> str:
         return self._data["status"]
 
-    def get_store(self, engine: str = "zarr") -> Store:
+    def get_store(self, engine: str = "icechunk") -> Store:
         """Get a zarr Store for this dataset.
 
         Args:
-            engine: "zarr" (default) or "icechunk".
+            engine: "icechunk" (default) or "zarr".
 
         Returns:
             zarr.abc.Store
@@ -50,11 +50,11 @@ class DatasetEntry:
 
         return _get_store(self._data, engine=engine)
 
-    def open(self, engine: str = "zarr", **kwargs: Any) -> xr.Dataset:
+    def open(self, engine: str = "icechunk", **kwargs: Any) -> xr.Dataset:
         """Open this dataset as an xarray Dataset.
 
         Args:
-            engine: "zarr" (default) or "icechunk".
+            engine: "icechunk" (default) or "zarr".
             **kwargs: Passed through to xr.open_zarr().
 
         Returns:

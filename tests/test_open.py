@@ -42,12 +42,15 @@ class TestGetStoreIcechunk:
         mock_repo = mock_icechunk.Repository.open.return_value
         assert store is mock_repo.readonly_session.return_value.store
 
-    @patch("dynamical_catalog._open.icechunk")
-    def test_no_icechunk_config_raises(self, _mock_icechunk):
+    @patch("dynamical_catalog._open.zarr.storage.FsspecStore.from_url")
+    def test_no_icechunk_config_falls_back_to_zarr(self, mock_from_url):
+        mock_from_url.return_value = MagicMock()
         data = {"id": "test", "zarr_url": "https://example.com/test.zarr"}
 
-        with pytest.raises(ValueError, match="does not have icechunk"):
-            _get_store(data, engine="icechunk")
+        store = _get_store(data, engine="icechunk")
+
+        mock_from_url.assert_called_once_with("https://example.com/test.zarr")
+        assert store is mock_from_url.return_value
 
 
 class TestGetStoreUnknownEngine:
