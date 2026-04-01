@@ -32,7 +32,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add pyproject.toml
-          git commit -m "Release v$VERSION"
+          git diff --cached --quiet || git commit -m "Release v$VERSION"
           git tag "v$VERSION"
           git push origin main "v$VERSION"
         env:
