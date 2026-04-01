@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dynamical-catalog"
-version = "0.2.0"
+version = "0.3.0"
 description = "Load dynamical.org weather datasets in one line"
 readme = "README.md"
 license = "MIT"
