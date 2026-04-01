@@ -1,11 +1,11 @@
 """Work with forecast data: init_time and lead_time dimensions."""
 
-import dynamical
+import dynamical_catalog
 
-dynamical.identify("dynamical-py example")
+dynamical_catalog.identify("dynamical-catalog example")
 
 # Open the GFS forecast dataset
-ds = dynamical.open("noaa-gfs-forecast")
+ds = dynamical_catalog.open("noaa-gfs-forecast")
 
 # Select one forecast initialization and a location
 forecast = ds["temperature_2m"].sel(

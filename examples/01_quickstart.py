@@ -1,11 +1,11 @@
 """Quickstart: open a dataset and read a single value."""
 
-import dynamical
+import dynamical_catalog
 
-dynamical.identify("dynamical-py example")
+dynamical_catalog.identify("dynamical-catalog example")
 
 # Open the GFS analysis dataset (lazily — no data downloaded yet)
-ds = dynamical.open("noaa-gfs-analysis")
+ds = dynamical_catalog.open("noaa-gfs-analysis")
 
 # Read 2m temperature at a specific place and time
 temp = (

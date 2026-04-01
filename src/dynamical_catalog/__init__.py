@@ -1,4 +1,4 @@
-"""dynamical - Load dynamical.org weather datasets in one line."""
+"""dynamical_catalog - Load dynamical.org weather datasets in one line."""
 
 from __future__ import annotations
 
@@ -9,10 +9,10 @@ if TYPE_CHECKING:
     import xarray as xr
     from zarr.abc.store import Store
 
-from dynamical._catalog import Catalog
-from dynamical._stac import clear_cache, load_catalog, set_identifier
+from dynamical_catalog._catalog import Catalog
+from dynamical_catalog._stac import clear_cache, load_catalog, set_identifier
 
-__version__ = version("dynamical")
+__version__ = version("dynamical-catalog")
 
 catalog = Catalog(load_catalog)
 
@@ -21,7 +21,7 @@ def identify(identifier: str) -> None:
     """Set your identity for STAC catalog requests.
 
     The identifier (typically an email or company name) is included in
-    the User-Agent header: ``dynamical-py/0.1.0 (identifier)``.
+    the User-Agent header: ``dynamical-catalog/0.1.0 (identifier)``.
 
     Args:
         identifier: Email or company name, e.g. "marshall@dynamical.org".
@@ -40,7 +40,7 @@ def get_store(dataset_id: str, engine: str = "zarr") -> Store:
     Returns:
         zarr.abc.Store
     """
-    from dynamical._open import _get_store
+    from dynamical_catalog._open import _get_store
 
     return _get_store(_resolve(dataset_id), engine=engine)
 
@@ -57,7 +57,7 @@ def open(dataset_id: str, engine: str = "zarr", **kwargs: Any) -> xr.Dataset:
     Returns:
         xarray.Dataset
     """
-    from dynamical._open import _open_dataset
+    from dynamical_catalog._open import _open_dataset
 
     return _open_dataset(_resolve(dataset_id), engine=engine, **kwargs)
 

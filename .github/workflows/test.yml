@@ -16,13 +16,13 @@ jobs:
       - run: pip install ruff mypy
       - run: ruff check src/ tests/
       - run: ruff format --check src/ tests/
-      - run: mypy src/dynamical/
+      - run: mypy src/dynamical_catalog/
 
   test:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

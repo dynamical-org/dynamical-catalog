@@ -1,11 +1,11 @@
 """Query high-resolution precipitation data from MRMS."""
 
-import dynamical
+import dynamical_catalog
 
-dynamical.identify("dynamical-py example")
+dynamical_catalog.identify("dynamical-catalog example")
 
 # Open the MRMS hourly precipitation analysis (~1km resolution, CONUS only)
-ds = dynamical.open("noaa-mrms-conus-analysis-hourly")
+ds = dynamical_catalog.open("noaa-mrms-conus-analysis-hourly")
 
 # Get precipitation at a point over a time range
 precip = ds["precipitation_surface"].sel(

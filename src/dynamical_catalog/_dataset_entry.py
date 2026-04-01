@@ -46,7 +46,7 @@ class DatasetEntry:
         Returns:
             zarr.abc.Store
         """
-        from dynamical._open import _get_store
+        from dynamical_catalog._open import _get_store
 
         return _get_store(self._data, engine=engine)
 
@@ -60,7 +60,7 @@ class DatasetEntry:
         Returns:
             xarray.Dataset
         """
-        from dynamical._open import _open_dataset
+        from dynamical_catalog._open import _open_dataset
 
         return _open_dataset(self._data, engine=engine, **kwargs)
 

@@ -2,8 +2,8 @@ from unittest.mock import patch
 
 import pytest
 
-from dynamical._catalog import Catalog
-from dynamical._dataset_entry import DatasetEntry
+from dynamical_catalog._catalog import Catalog
+from dynamical_catalog._dataset_entry import DatasetEntry
 from tests.conftest import SAMPLE_DATASETS
 
 
@@ -68,7 +68,7 @@ class TestDatasetEntry:
         entry = DatasetEntry(data)
         assert entry.icechunk_config is None
 
-    @patch("dynamical._open._open_dataset")
+    @patch("dynamical_catalog._open._open_dataset")
     def test_open_delegates_to_open_dataset(self, mock_open):
         entry = DatasetEntry(SAMPLE_DATASETS["noaa-gfs-forecast"])
         entry.open(engine="zarr", chunks={"time": 10})
@@ -76,7 +76,7 @@ class TestDatasetEntry:
             SAMPLE_DATASETS["noaa-gfs-forecast"], engine="zarr", chunks={"time": 10}
         )
 
-    @patch("dynamical._open._get_store")
+    @patch("dynamical_catalog._open._get_store")
     def test_get_store_delegates(self, mock_get_store):
         entry = DatasetEntry(SAMPLE_DATASETS["noaa-gfs-forecast"])
         entry.get_store(engine="icechunk")
@@ -86,54 +86,54 @@ class TestDatasetEntry:
 
 
 class TestTopLevelAPI:
-    @patch("dynamical._stac._datasets", SAMPLE_DATASETS)
-    @patch("dynamical._open._open_dataset")
+    @patch("dynamical_catalog._stac._datasets", SAMPLE_DATASETS)
+    @patch("dynamical_catalog._open._open_dataset")
     def test_open_normalizes_underscores(self, mock_open):
-        import dynamical
+        import dynamical_catalog
 
-        dynamical.open("noaa_gfs_forecast")
+        dynamical_catalog.open("noaa_gfs_forecast")
         mock_open.assert_called_once_with(
             SAMPLE_DATASETS["noaa-gfs-forecast"], engine="zarr"
         )
 
-    @patch("dynamical._stac._datasets", SAMPLE_DATASETS)
-    @patch("dynamical._open._get_store")
+    @patch("dynamical_catalog._stac._datasets", SAMPLE_DATASETS)
+    @patch("dynamical_catalog._open._get_store")
     def test_get_store_normalizes_underscores(self, mock_get_store):
-        import dynamical
+        import dynamical_catalog
 
-        dynamical.get_store("noaa_gfs_forecast")
+        dynamical_catalog.get_store("noaa_gfs_forecast")
         mock_get_store.assert_called_once_with(
             SAMPLE_DATASETS["noaa-gfs-forecast"], engine="zarr"
         )
 
-    @patch("dynamical._stac._datasets", SAMPLE_DATASETS)
+    @patch("dynamical_catalog._stac._datasets", SAMPLE_DATASETS)
     def test_open_unknown_raises_valueerror(self):
-        import dynamical
+        import dynamical_catalog
 
         with pytest.raises(ValueError, match="Unknown dataset"):
-            dynamical.open("nonexistent")
+            dynamical_catalog.open("nonexistent")
 
-    @patch("dynamical._stac._datasets", SAMPLE_DATASETS)
+    @patch("dynamical_catalog._stac._datasets", SAMPLE_DATASETS)
     def test_list_returns_sorted_ids(self):
-        import dynamical
+        import dynamical_catalog
 
-        ids = dynamical.list()
+        ids = dynamical_catalog.list()
         assert isinstance(ids, list)
         assert ids == sorted(ids)
         assert "noaa-gfs-forecast" in ids
 
     def test_catalog_is_catalog_instance(self):
-        import dynamical
+        import dynamical_catalog
 
-        assert isinstance(dynamical.catalog, Catalog)
+        assert isinstance(dynamical_catalog.catalog, Catalog)
 
     def test_identify_sets_identifier(self):
-        import dynamical
-        import dynamical._stac as stac_mod
+        import dynamical_catalog
+        import dynamical_catalog._stac as stac_mod
 
         old_id = stac_mod._identifier
         try:
-            dynamical.identify("marshall@dynamical.org")
+            dynamical_catalog.identify("marshall@dynamical.org")
             assert stac_mod._identifier == "marshall@dynamical.org"
         finally:
             stac_mod._identifier = old_id

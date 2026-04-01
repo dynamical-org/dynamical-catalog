@@ -2,12 +2,12 @@
 
 import zarr
 
-import dynamical
+import dynamical_catalog
 
-dynamical.identify("dynamical-py example")
+dynamical_catalog.identify("dynamical-catalog example")
 
 # get_store returns a zarr.abc.Store — the primitive underlying open()
-store = dynamical.get_store("noaa-gfs-forecast")
+store = dynamical_catalog.get_store("noaa-gfs-forecast")
 
 # Open it with zarr directly
 group = zarr.open_group(store)

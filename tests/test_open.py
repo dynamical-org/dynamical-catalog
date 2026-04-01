@@ -2,11 +2,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from dynamical._open import _get_store, _open_dataset
+from dynamical_catalog._open import _get_store, _open_dataset
 
 
 class TestGetStoreZarr:
-    @patch("dynamical._open.zarr.storage.FsspecStore.from_url")
+    @patch("dynamical_catalog._open.zarr.storage.FsspecStore.from_url")
     def test_returns_fsspec_store(self, mock_from_url):
         mock_from_url.return_value = MagicMock()
         data = {"id": "test", "zarr_url": "https://example.com/test.zarr"}
@@ -18,7 +18,7 @@ class TestGetStoreZarr:
 
 
 class TestGetStoreIcechunk:
-    @patch("dynamical._open.icechunk")
+    @patch("dynamical_catalog._open.icechunk")
     def test_returns_icechunk_store(self, mock_icechunk):
         data = {
             "id": "test",
@@ -42,7 +42,7 @@ class TestGetStoreIcechunk:
         mock_repo = mock_icechunk.Repository.open.return_value
         assert store is mock_repo.readonly_session.return_value.store
 
-    @patch("dynamical._open.icechunk")
+    @patch("dynamical_catalog._open.icechunk")
     def test_no_icechunk_config_raises(self, _mock_icechunk):
         data = {"id": "test", "zarr_url": "https://example.com/test.zarr"}
 
@@ -59,8 +59,8 @@ class TestGetStoreUnknownEngine:
 
 
 class TestOpenDataset:
-    @patch("dynamical._open.xr")
-    @patch("dynamical._open._get_store")
+    @patch("dynamical_catalog._open.xr")
+    @patch("dynamical_catalog._open._get_store")
     def test_passes_store_to_open_zarr(self, mock_get_store, mock_xr):
         mock_store = MagicMock()
         mock_get_store.return_value = mock_store
@@ -72,8 +72,8 @@ class TestOpenDataset:
         mock_xr.open_zarr.assert_called_once_with(mock_store)
         assert result is mock_xr.open_zarr.return_value
 
-    @patch("dynamical._open.xr")
-    @patch("dynamical._open._get_store")
+    @patch("dynamical_catalog._open.xr")
+    @patch("dynamical_catalog._open._get_store")
     def test_passes_kwargs(self, mock_get_store, mock_xr):
         data = {"id": "test", "zarr_url": "https://example.com/test.zarr"}
 

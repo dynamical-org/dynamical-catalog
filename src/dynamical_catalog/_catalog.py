@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from dynamical._dataset_entry import DatasetEntry
+from dynamical_catalog._dataset_entry import DatasetEntry
 
 
 class Catalog:
@@ -11,9 +11,9 @@ class Catalog:
 
     Supports tab-completion in IPython/Jupyter::
 
-        >>> import dynamical
-        >>> dynamical.catalog.<TAB>
-        >>> dynamical.catalog.noaa_gfs_forecast.open()
+        >>> import dynamical_catalog
+        >>> dynamical_catalog.catalog.<TAB>
+        >>> dynamical_catalog.catalog.noaa_gfs_forecast.open()
     """
 
     def __init__(self, loader: Callable[[], dict[str, dict[str, Any]]]) -> None:

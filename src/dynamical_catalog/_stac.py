@@ -24,9 +24,9 @@ def set_identifier(identifier: str) -> None:
 
 
 def _user_agent() -> str:
-    from dynamical import __version__
+    from dynamical_catalog import __version__
 
-    ua = f"dynamical-py/{__version__}"
+    ua = f"dynamical-catalog/{__version__}"
     if _identifier:
         ua += f" ({_identifier})"
     return ua

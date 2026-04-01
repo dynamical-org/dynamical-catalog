@@ -1,11 +1,11 @@
 """Work with ensemble forecast data (GEFS and ECMWF IFS ENS)."""
 
-import dynamical
+import dynamical_catalog
 
-dynamical.identify("dynamical-py example")
+dynamical_catalog.identify("dynamical-catalog example")
 
 # Open the GEFS 35-day ensemble forecast
-ds = dynamical.open("noaa-gefs-forecast-35-day")
+ds = dynamical_catalog.open("noaa-gefs-forecast-35-day")
 
 # Select one initialization and location
 forecast = ds["temperature_2m"].sel(
