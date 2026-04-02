@@ -59,6 +59,6 @@ No tests verify expected dimensions exist. A schema change could silently break 
 - `uv run pytest tests/test_integration.py -v -m slow`
 
 ## Status
-- [ ] Branch + draft PR created
+- [x] Branch + draft PR created (PR #1)
 - [ ] Implement tests
 - [ ] Tests pass against live data
