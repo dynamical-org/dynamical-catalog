@@ -56,8 +56,35 @@ class TestOpenZarr:
             assert len(ds.data_vars) > 0, f"{dataset_id} has no data variables"
 
 
-class TestOpenIcechunk:
-    def test_open_icechunk_gfs_forecast(self):
-        ds = dynamical_catalog.open("noaa-gfs-forecast", engine="icechunk")
-        assert isinstance(ds, xr.Dataset)
-        assert len(ds.data_vars) > 0
+class TestOpenAllEngines:
+    def test_all_datasets_open_zarr(self):
+        for dataset_id in dynamical_catalog.list():
+            ds = dynamical_catalog.open(dataset_id, engine="zarr")
+            assert isinstance(ds, xr.Dataset), f"{dataset_id} did not return a Dataset"
+            assert len(ds.data_vars) > 0, f"{dataset_id} has no data variables"
+
+    def test_all_icechunk_datasets_open_icechunk(self):
+        for dataset_id in dynamical_catalog.list():
+            entry = getattr(dynamical_catalog.catalog, dataset_id.replace("-", "_"))
+            if entry.icechunk_config is None:
+                continue
+            ds = dynamical_catalog.open(dataset_id, engine="icechunk")
+            assert isinstance(ds, xr.Dataset), f"{dataset_id} did not return a Dataset"
+            assert len(ds.data_vars) > 0, f"{dataset_id} has no data variables"
+
+
+class TestDatasetStructure:
+    def test_all_datasets_have_spatial_coords(self):
+        for dataset_id in dynamical_catalog.list():
+            ds = dynamical_catalog.open(dataset_id)
+            has_latlon = "latitude" in ds.dims and "longitude" in ds.dims
+            has_xy = "x" in ds.dims and "y" in ds.dims
+            assert has_latlon or has_xy, f"{dataset_id} missing spatial dims"
+            assert "latitude" in ds.coords, f"{dataset_id} missing latitude coord"
+            assert "longitude" in ds.coords, f"{dataset_id} missing longitude coord"
+
+    def test_all_datasets_have_time_coord(self):
+        for dataset_id in dynamical_catalog.list():
+            ds = dynamical_catalog.open(dataset_id)
+            has_time = "time" in ds.dims or "init_time" in ds.dims
+            assert has_time, f"{dataset_id} missing time or init_time dim"
