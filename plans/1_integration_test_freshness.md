@@ -24,8 +24,8 @@ The catalog library fetches a live STAC catalog from `dynamical.org/stac/catalog
 
 ## Gaps to fill
 
-### 1. Staleness check (the big one)
-No test verifies data is **fresh**. A dataset could open fine but be days/weeks behind if a reformatter pipeline stalls. Add a test that reads the max `time` or `init_time` coordinate and asserts it's within a reasonable window (e.g., 5 days).
+### ~~1. Staleness check~~ — moved to dynamical.org repo
+Per PR discussion: staleness should be checked by construction when building the STAC, not in this client library.
 
 ### 2. Icechunk coverage for all datasets
 `test_all_datasets_open` uses the default engine (icechunk with zarr fallback). No test explicitly opens ALL datasets via both engines where applicable.
@@ -33,8 +33,8 @@ No test verifies data is **fresh**. A dataset could open fine but be days/weeks 
 ### 3. Coordinate/variable sanity
 No tests verify expected dimensions exist. A schema change could silently break downstream users.
 
-### 4. STAC URL resolution
-`test_all_datasets_have_zarr_url` checks the URL string exists but doesn't verify it resolves (HTTP HEAD).
+### ~~4. STAC URL resolution~~ — moved to dynamical.org repo
+Per PR discussion: data accessibility checks belong in the STAC build process.
 
 ## Implementation plan
 
@@ -60,5 +60,9 @@ No tests verify expected dimensions exist. A schema change could silently break 
 
 ## Status
 - [x] Branch + draft PR created (PR #1)
-- [ ] Implement tests
-- [ ] Tests pass against live data
+- [x] Implement tests
+- [x] Tests pass against live data (10/10 integration, 37/37 unit)
+
+## Notes
+- HRRR uses projected `x`/`y` dims (Lambert conformal) with 2D `latitude`/`longitude` coords, so spatial check accepts either pattern
+- Staleness + STAC URL resolution deferred to dynamical.org repo per PR discussion
