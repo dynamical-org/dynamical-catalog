@@ -10,7 +10,7 @@ import urllib.request
 from typing import Any
 from urllib.parse import urljoin
 
-STAC_CATALOG_URL = "https://dynamical.org/stac/catalog.json"
+STAC_CATALOG_URL = "https://stac.dynamical.org/catalog.json"
 
 _TIMEOUT_SECONDS = 30
 _lock = threading.Lock()
