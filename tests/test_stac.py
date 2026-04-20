@@ -5,8 +5,8 @@ import pytest
 
 import dynamical_catalog._stac as stac
 
-_CATALOG_URL = "https://dynamical.org/stac/catalog.json"
-_COLLECTION_URL = "https://dynamical.org/stac/noaa-gfs-forecast/collection.json"
+_CATALOG_URL = "https://stac.dynamical.org/catalog.json"
+_COLLECTION_URL = "https://stac.dynamical.org/noaa-gfs-forecast/collection.json"
 _ZARR_URL = "https://data.dynamical.org/noaa/gfs/forecast/latest.zarr"
 
 MOCK_CATALOG = {
@@ -14,8 +14,8 @@ MOCK_CATALOG = {
     "id": "dynamical-org",
     "stac_version": "1.0.0",
     "links": [
-        {"rel": "self", "href": "https://dynamical.org/stac/catalog.json"},
-        {"rel": "root", "href": "https://dynamical.org/stac/catalog.json"},
+        {"rel": "self", "href": "https://stac.dynamical.org/catalog.json"},
+        {"rel": "root", "href": "https://stac.dynamical.org/catalog.json"},
         {
             "rel": "child",
             "href": "./noaa-gfs-forecast/collection.json",
@@ -62,7 +62,7 @@ class TestFetchJson:
             side_effect=urllib.error.URLError("connection refused"),
         ):
             with pytest.raises(RuntimeError, match="Failed to fetch"):
-                stac._fetch_json("https://dynamical.org/stac/catalog.json")
+                stac._fetch_json("https://stac.dynamical.org/catalog.json")
 
     def test_http_error_raises_runtime_error(self):
         with patch.object(
