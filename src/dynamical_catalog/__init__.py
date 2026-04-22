@@ -9,12 +9,9 @@ if TYPE_CHECKING:
     import xarray as xr
     from zarr.abc.store import Store
 
-from dynamical_catalog._catalog import Catalog
 from dynamical_catalog._stac import clear_cache, load_catalog, set_identifier
 
 __version__ = version("dynamical-catalog")
-
-catalog = Catalog(load_catalog)
 
 
 def identify(identifier: str) -> None:
@@ -29,29 +26,27 @@ def identify(identifier: str) -> None:
     set_identifier(identifier)
 
 
-def get_store(dataset_id: str, engine: str = "icechunk") -> Store:
-    """Get a zarr Store for a dynamical.org dataset.
+def get_store(dataset_id: str) -> Store:
+    """Get a zarr Store for a dynamical.org dataset's icechunk repository.
 
     Args:
         dataset_id: Dataset identifier (e.g. "noaa-gfs-forecast").
             Underscores are also accepted (e.g. "noaa_gfs_forecast").
-        engine: "icechunk" (default) or "zarr".
 
     Returns:
         zarr.abc.Store
     """
     from dynamical_catalog._open import _get_store
 
-    return _get_store(_resolve(dataset_id), engine=engine)
+    return _get_store(_resolve(dataset_id))
 
 
-def open(dataset_id: str, engine: str = "icechunk", **kwargs: Any) -> xr.Dataset:
+def open(dataset_id: str, **kwargs: Any) -> xr.Dataset:
     """Open a dynamical.org dataset by ID.
 
     Args:
         dataset_id: Dataset identifier (e.g. "noaa-gfs-forecast").
             Underscores are also accepted (e.g. "noaa_gfs_forecast").
-        engine: "icechunk" (default) or "zarr".
         **kwargs: Passed through to xr.open_zarr().
 
     Returns:
@@ -59,7 +54,7 @@ def open(dataset_id: str, engine: str = "icechunk", **kwargs: Any) -> xr.Dataset
     """
     from dynamical_catalog._open import _open_dataset
 
-    return _open_dataset(_resolve(dataset_id), engine=engine, **kwargs)
+    return _open_dataset(_resolve(dataset_id), **kwargs)
 
 
 def list() -> list[str]:  # type: ignore[valid-type]
@@ -77,11 +72,10 @@ def _resolve(dataset_id: str) -> dict[str, Any]:
 
 
 __all__ = [
-    "open",
-    "get_store",
-    "list",
-    "identify",
-    "catalog",
-    "clear_cache",
     "__version__",
+    "clear_cache",
+    "get_store",
+    "identify",
+    "list",
+    "open",
 ]

@@ -8,7 +8,7 @@ import threading
 import urllib.error
 import urllib.request
 from typing import Any
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 STAC_CATALOG_URL = "https://stac.dynamical.org/catalog.json"
 
@@ -43,33 +43,45 @@ def _fetch_json(url: str) -> Any:
         ) from e
 
 
-def _parse_collection(collection: dict[str, Any]) -> dict[str, Any]:
-    """Extract the dataset config we need from a STAC Collection."""
-    assets = collection.get("assets", {})
-    zarr_asset = assets.get("zarr")
-    if zarr_asset is None:
+def _parse_icechunk_asset(collection_id: str, asset: dict[str, Any]) -> dict[str, str]:
+    parsed = urlparse(asset["href"])
+    if parsed.scheme != "s3" or not parsed.netloc or not parsed.path.lstrip("/"):
         raise ValueError(
-            f"STAC Collection {collection.get('id', '?')} is missing a 'zarr' asset"
+            f"STAC Collection {collection_id} icechunk asset href is not an s3:// URL "
+            f"with bucket and prefix: {asset['href']!r}"
         )
-
-    result: dict[str, Any] = {
-        "id": collection["id"],
-        "name": collection.get("title", collection["id"]),
-        "description": collection.get("description", ""),
-        "status": "live",
-        "zarr_url": zarr_asset["href"],
+    storage_options = asset.get("xarray:storage_options", {})
+    client_kwargs = storage_options.get("client_kwargs", {})
+    region = client_kwargs.get("region_name")
+    if not region:
+        raise ValueError(
+            f"STAC Collection {collection_id} icechunk asset is missing "
+            f"xarray:storage_options.client_kwargs.region_name"
+        )
+    return {
+        "bucket": parsed.netloc,
+        "prefix": parsed.path.lstrip("/"),
+        "region": region,
     }
 
-    icechunk_asset = assets.get("icechunk")
-    if icechunk_asset is not None:
-        storage = icechunk_asset.get("icechunk:storage", {})
-        result["icechunk"] = {
-            "bucket": storage["bucket"],
-            "prefix": storage["prefix"],
-            "region": storage["region"],
-        }
 
-    return result
+def _parse_collection(collection: dict[str, Any]) -> dict[str, Any]:
+    """Extract the dataset config we need from a STAC Collection."""
+    collection_id = collection["id"]
+    assets = collection.get("assets", {})
+    icechunk_asset = assets.get("icechunk")
+    if icechunk_asset is None:
+        raise ValueError(
+            f"STAC Collection {collection_id} is missing an 'icechunk' asset"
+        )
+
+    return {
+        "id": collection_id,
+        "name": collection.get("title", collection_id),
+        "description": collection.get("description", ""),
+        "status": "live",
+        "icechunk": _parse_icechunk_asset(collection_id, icechunk_asset),
+    }
 
 
 def load_catalog() -> dict[str, dict[str, Any]]:
