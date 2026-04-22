@@ -5,17 +5,16 @@ import pytest
 
 import dynamical_catalog._stac as stac
 
-_CATALOG_URL = "https://dynamical.org/stac/catalog.json"
-_COLLECTION_URL = "https://dynamical.org/stac/noaa-gfs-forecast/collection.json"
-_ZARR_URL = "https://data.dynamical.org/noaa/gfs/forecast/latest.zarr"
+_CATALOG_URL = "https://stac.dynamical.org/catalog.json"
+_COLLECTION_URL = "https://stac.dynamical.org/noaa-gfs-forecast/collection.json"
 
 MOCK_CATALOG = {
     "type": "Catalog",
     "id": "dynamical-org",
     "stac_version": "1.0.0",
     "links": [
-        {"rel": "self", "href": "https://dynamical.org/stac/catalog.json"},
-        {"rel": "root", "href": "https://dynamical.org/stac/catalog.json"},
+        {"rel": "self", "href": "https://stac.dynamical.org/catalog.json"},
+        {"rel": "root", "href": "https://stac.dynamical.org/catalog.json"},
         {
             "rel": "child",
             "href": "./noaa-gfs-forecast/collection.json",
@@ -32,17 +31,12 @@ MOCK_COLLECTION = {
     "description": "Weather forecasts from GFS.",
     "license": "CC-BY-4.0",
     "assets": {
-        "zarr": {
-            "href": "https://data.dynamical.org/noaa/gfs/forecast/latest.zarr",
-            "type": "application/x-zarr",
-        },
         "icechunk": {
             "href": "s3://dynamical-noaa-gfs/noaa-gfs-forecast/v0.2.7.icechunk/",
             "type": "application/x-icechunk",
-            "icechunk:storage": {
-                "bucket": "dynamical-noaa-gfs",
-                "prefix": "noaa-gfs-forecast/v0.2.7.icechunk/",
-                "region": "us-west-2",
+            "xarray:storage_options": {
+                "anon": True,
+                "client_kwargs": {"region_name": "us-west-2"},
             },
         },
     },
@@ -62,7 +56,7 @@ class TestFetchJson:
             side_effect=urllib.error.URLError("connection refused"),
         ):
             with pytest.raises(RuntimeError, match="Failed to fetch"):
-                stac._fetch_json("https://dynamical.org/stac/catalog.json")
+                stac._fetch_json("https://stac.dynamical.org/catalog.json")
 
     def test_http_error_raises_runtime_error(self):
         with patch.object(
@@ -117,32 +111,49 @@ class TestFetchJson:
 
 
 class TestParseCollection:
-    def test_parses_zarr_url(self):
-        result = stac._parse_collection(MOCK_COLLECTION)
-        assert result["zarr_url"] == _ZARR_URL
-
     def test_parses_icechunk_config(self):
         result = stac._parse_collection(MOCK_COLLECTION)
         assert result["icechunk"]["bucket"] == "dynamical-noaa-gfs"
         assert result["icechunk"]["prefix"] == "noaa-gfs-forecast/v0.2.7.icechunk/"
         assert result["icechunk"]["region"] == "us-west-2"
 
-    def test_no_icechunk_asset(self):
-        zarr_only = {"zarr": MOCK_COLLECTION["assets"]["zarr"]}
-        collection = {**MOCK_COLLECTION, "assets": zarr_only}
-        result = stac._parse_collection(collection)
-        assert "icechunk" not in result
-
-    def test_missing_zarr_asset_raises(self):
-        collection = {**MOCK_COLLECTION, "assets": {}}
-        with pytest.raises(ValueError, match="missing a 'zarr' asset"):
-            stac._parse_collection(collection)
-
     def test_parses_metadata(self):
         result = stac._parse_collection(MOCK_COLLECTION)
         assert result["id"] == "noaa-gfs-forecast"
         assert result["name"] == "NOAA GFS forecast"
         assert result["description"] == "Weather forecasts from GFS."
+
+    def test_missing_icechunk_asset_raises(self):
+        collection = {**MOCK_COLLECTION, "assets": {}}
+        with pytest.raises(ValueError, match="missing an 'icechunk' asset"):
+            stac._parse_collection(collection)
+
+    def test_non_s3_href_raises(self):
+        bad = {
+            **MOCK_COLLECTION,
+            "assets": {
+                "icechunk": {
+                    "href": "https://example.com/repo",
+                    "xarray:storage_options": {
+                        "client_kwargs": {"region_name": "us-west-2"},
+                    },
+                }
+            },
+        }
+        with pytest.raises(ValueError, match="is not an s3:// URL"):
+            stac._parse_collection(bad)
+
+    def test_missing_region_raises(self):
+        bad = {
+            **MOCK_COLLECTION,
+            "assets": {
+                "icechunk": {
+                    "href": "s3://bucket/prefix/",
+                }
+            },
+        }
+        with pytest.raises(ValueError, match="region_name"):
+            stac._parse_collection(bad)
 
 
 class TestLoadCatalog:
@@ -161,7 +172,7 @@ class TestLoadCatalog:
         with fake:
             result = stac.load_catalog()
             assert "noaa-gfs-forecast" in result
-            assert result["noaa-gfs-forecast"]["zarr_url"] == _ZARR_URL
+            assert result["noaa-gfs-forecast"]["icechunk"]["region"] == "us-west-2"
 
             # Second call should use cache (no additional fetch)
             result2 = stac.load_catalog()

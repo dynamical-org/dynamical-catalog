@@ -25,19 +25,8 @@ class TestStacCatalog:
         assert len(datasets) > 0
         assert "noaa-gfs-forecast" in datasets
 
-    def test_all_datasets_have_zarr_url(self):
-        for dataset_id in dynamical_catalog.list():
-            entry = getattr(dynamical_catalog.catalog, dataset_id.replace("-", "_"))
-            assert entry.zarr_url, f"{dataset_id} missing zarr_url"
 
-    def test_catalog_entry_metadata(self):
-        entry = dynamical_catalog.catalog.noaa_gfs_forecast
-        assert entry.id == "noaa-gfs-forecast"
-        assert entry.name
-        assert entry.description
-
-
-class TestOpenZarr:
+class TestOpen:
     def test_open_gfs_forecast(self):
         ds = dynamical_catalog.open("noaa-gfs-forecast")
         assert isinstance(ds, xr.Dataset)
@@ -49,26 +38,8 @@ class TestOpenZarr:
         assert len(ds.data_vars) > 0
 
     def test_all_datasets_open(self):
-        """Verify every dataset in the catalog can be opened without error."""
         for dataset_id in dynamical_catalog.list():
             ds = dynamical_catalog.open(dataset_id)
-            assert isinstance(ds, xr.Dataset), f"{dataset_id} did not return a Dataset"
-            assert len(ds.data_vars) > 0, f"{dataset_id} has no data variables"
-
-
-class TestOpenAllEngines:
-    def test_all_datasets_open_zarr(self):
-        for dataset_id in dynamical_catalog.list():
-            ds = dynamical_catalog.open(dataset_id, engine="zarr")
-            assert isinstance(ds, xr.Dataset), f"{dataset_id} did not return a Dataset"
-            assert len(ds.data_vars) > 0, f"{dataset_id} has no data variables"
-
-    def test_all_icechunk_datasets_open_icechunk(self):
-        for dataset_id in dynamical_catalog.list():
-            entry = getattr(dynamical_catalog.catalog, dataset_id.replace("-", "_"))
-            if entry.icechunk_config is None:
-                continue
-            ds = dynamical_catalog.open(dataset_id, engine="icechunk")
             assert isinstance(ds, xr.Dataset), f"{dataset_id} did not return a Dataset"
             assert len(ds.data_vars) > 0, f"{dataset_id} has no data variables"
 
