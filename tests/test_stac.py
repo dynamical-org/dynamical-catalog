@@ -156,6 +156,89 @@ class TestParseCollection:
             stac._parse_collection(bad)
 
 
+class TestParseVirtualChunkContainers:
+    def _collection_with_containers(self, containers):
+        return {
+            **MOCK_COLLECTION,
+            "assets": {
+                "icechunk": {
+                    **MOCK_COLLECTION["assets"]["icechunk"],
+                    "icechunk:virtual_chunk_containers": containers,
+                }
+            },
+        }
+
+    def test_absent_yields_empty_list(self):
+        result = stac._parse_collection(MOCK_COLLECTION)
+        assert result["virtual_chunk_containers"] == []
+
+    def test_parses_anonymous_s3_containers(self):
+        collection = self._collection_with_containers(
+            [
+                {
+                    "url_prefix": "s3://noaa-gfs-bdp-pds",
+                    "credentials": {"type": "s3", "anonymous": True},
+                },
+                {
+                    "url_prefix": "s3://some-other-bucket/path",
+                    "credentials": {"type": "s3", "anonymous": True},
+                },
+            ]
+        )
+        result = stac._parse_collection(collection)
+        assert result["virtual_chunk_containers"] == [
+            "s3://noaa-gfs-bdp-pds",
+            "s3://some-other-bucket/path",
+        ]
+
+    def test_non_s3_prefix_raises(self):
+        collection = self._collection_with_containers(
+            [
+                {
+                    "url_prefix": "https://example.com/bucket",
+                    "credentials": {"type": "s3", "anonymous": True},
+                }
+            ]
+        )
+        with pytest.raises(ValueError, match="url_prefix must be an s3:// string"):
+            stac._parse_collection(collection)
+
+    def test_non_anonymous_credentials_raises(self):
+        collection = self._collection_with_containers(
+            [
+                {
+                    "url_prefix": "s3://somebucket",
+                    "credentials": {
+                        "type": "s3",
+                        "access_key_id": "AKIA...",
+                        "secret_access_key": "...",
+                    },
+                }
+            ]
+        )
+        with pytest.raises(ValueError, match="anonymous: true"):
+            stac._parse_collection(collection)
+
+    def test_missing_credentials_raises(self):
+        collection = self._collection_with_containers(
+            [{"url_prefix": "s3://somebucket"}]
+        )
+        with pytest.raises(ValueError, match="anonymous: true"):
+            stac._parse_collection(collection)
+
+    def test_non_s3_credential_type_raises(self):
+        collection = self._collection_with_containers(
+            [
+                {
+                    "url_prefix": "s3://somebucket",
+                    "credentials": {"type": "gcs", "anonymous": True},
+                }
+            ]
+        )
+        with pytest.raises(ValueError, match="anonymous: true"):
+            stac._parse_collection(collection)
+
+
 class TestLoadCatalog:
     @pytest.fixture(autouse=True)
     def reset_cache(self):
