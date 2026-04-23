@@ -23,9 +23,38 @@ class TestGetStore:
             region="us-west-2",
             anonymous=True,
         )
-        mock_icechunk.Repository.open.assert_called_once()
+        mock_icechunk.Repository.open.assert_called_once_with(
+            mock_icechunk.s3_storage.return_value,
+            authorize_virtual_chunk_access=None,
+        )
         mock_repo = mock_icechunk.Repository.open.return_value
         assert store is mock_repo.readonly_session.return_value.store
+
+    @patch("dynamical_catalog._open.icechunk")
+    def test_authorizes_virtual_chunk_containers(self, mock_icechunk):
+        data = {
+            "id": "test",
+            "icechunk": {
+                "bucket": "dynamical-test",
+                "prefix": "test/v0.1.0.icechunk/",
+                "region": "us-west-2",
+            },
+            "virtual_chunk_containers": [
+                "s3://noaa-gfs-bdp-pds",
+                "s3://some-other-bucket",
+            ],
+        }
+        anon_cred = mock_icechunk.s3_anonymous_credentials.return_value
+
+        _get_store(data)
+
+        mock_icechunk.Repository.open.assert_called_once_with(
+            mock_icechunk.s3_storage.return_value,
+            authorize_virtual_chunk_access={
+                "s3://noaa-gfs-bdp-pds": anon_cred,
+                "s3://some-other-bucket": anon_cred,
+            },
+        )
 
 
 class TestOpenDataset:
@@ -42,7 +71,7 @@ class TestOpenDataset:
         result = _open_dataset(data)
 
         mock_get_store.assert_called_once_with(data)
-        mock_xr.open_zarr.assert_called_once_with(mock_store)
+        mock_xr.open_zarr.assert_called_once_with(mock_store, consolidated=False)
         assert result is mock_xr.open_zarr.return_value
 
     @patch("dynamical_catalog._open.xr")
@@ -56,5 +85,19 @@ class TestOpenDataset:
         _open_dataset(data, chunks={"time": 10})
 
         mock_xr.open_zarr.assert_called_once_with(
-            mock_get_store.return_value, chunks={"time": 10}
+            mock_get_store.return_value, chunks={"time": 10}, consolidated=False
+        )
+
+    @patch("dynamical_catalog._open.xr")
+    @patch("dynamical_catalog._open._get_store")
+    def test_caller_can_override_consolidated(self, mock_get_store, mock_xr):
+        data = {
+            "id": "test",
+            "icechunk": {"bucket": "b", "prefix": "p/", "region": "us-west-2"},
+        }
+
+        _open_dataset(data, consolidated=True)
+
+        mock_xr.open_zarr.assert_called_once_with(
+            mock_get_store.return_value, consolidated=True
         )

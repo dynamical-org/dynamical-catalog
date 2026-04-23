@@ -5,7 +5,6 @@ SAMPLE_DATASETS = {
         "id": "noaa-gfs-forecast",
         "name": "NOAA GFS forecast",
         "description": "Weather forecasts from GFS.",
-        "status": "live",
         "icechunk": {
             "bucket": "dynamical-noaa-gfs",
             "prefix": "noaa-gfs-forecast/v0.2.7.icechunk/",
@@ -16,7 +15,6 @@ SAMPLE_DATASETS = {
         "id": "noaa-gfs-analysis",
         "name": "NOAA GFS analysis",
         "description": "Weather analysis from GFS.",
-        "status": "live",
         "icechunk": {
             "bucket": "dynamical-noaa-gfs",
             "prefix": "noaa-gfs-analysis/v0.1.0.icechunk/",
@@ -27,7 +25,6 @@ SAMPLE_DATASETS = {
         "id": "noaa-gefs-forecast-35-day",
         "name": "NOAA GEFS forecast, 35 day",
         "description": "Ensemble forecasts from GEFS.",
-        "status": "live",
         "icechunk": {
             "bucket": "dynamical-noaa-gefs",
             "prefix": "noaa-gefs-forecast-35-day/v0.2.0.icechunk/",
