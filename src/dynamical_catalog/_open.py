@@ -19,7 +19,11 @@ def _get_store(dataset_data: dict[str, Any]) -> Store:
     )
     prefixes = dataset_data.get("virtual_chunk_containers") or []
     authorize = (
-        {p: icechunk.s3_anonymous_credentials() for p in prefixes} if prefixes else None
+        icechunk.containers_credentials(
+            {p: icechunk.s3_anonymous_credentials() for p in prefixes}
+        )
+        if prefixes
+        else None
     )
     repo = icechunk.Repository.open(storage, authorize_virtual_chunk_access=authorize)
     session = repo.readonly_session("main")

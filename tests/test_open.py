@@ -48,12 +48,15 @@ class TestGetStore:
 
         _get_store(data)
 
-        mock_icechunk.Repository.open.assert_called_once_with(
-            mock_icechunk.s3_storage.return_value,
-            authorize_virtual_chunk_access={
+        mock_icechunk.containers_credentials.assert_called_once_with(
+            {
                 "s3://noaa-gfs-bdp-pds": anon_cred,
                 "s3://some-other-bucket": anon_cred,
-            },
+            }
+        )
+        mock_icechunk.Repository.open.assert_called_once_with(
+            mock_icechunk.s3_storage.return_value,
+            authorize_virtual_chunk_access=mock_icechunk.containers_credentials.return_value,
         )
 
 
