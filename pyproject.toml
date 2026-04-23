@@ -1,10 +1,6 @@
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
-
 [project]
 name = "dynamical-catalog"
-version = "0.4.0"
+version = "0.5.0"
 description = "Load dynamical.org weather datasets in one line"
 readme = "README.md"
 license = "MIT"
@@ -24,9 +20,13 @@ classifiers = [
 ]
 dependencies = [
     "xarray>=2025.1.2",
-    "zarr>=3.0.8",
-    "icechunk>=2.0.0",
+    "zarr~=3.0",
+    "icechunk~=2.0",
 ]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project.urls]
 Homepage = "https://dynamical.org"
