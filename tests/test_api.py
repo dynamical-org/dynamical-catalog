@@ -1,68 +1,156 @@
-from unittest.mock import patch
-
 import pytest
 
 import dynamical_catalog
-from tests.conftest import SAMPLE_DATASETS
+import dynamical_catalog._stac as stac
 
 
 class TestOpen:
-    @patch("dynamical_catalog._stac._datasets", SAMPLE_DATASETS)
-    @patch("dynamical_catalog._open._open_dataset")
-    def test_open_by_hyphenated_id(self, mock_open):
+    def test_open_by_hyphenated_id(self, populated_catalog, mocker):
+        mock_open = mocker.patch("dynamical_catalog._open._open_dataset")
         dynamical_catalog.open("noaa-gfs-forecast")
-        mock_open.assert_called_once_with(SAMPLE_DATASETS["noaa-gfs-forecast"])
+        mock_open.assert_called_once_with(populated_catalog["noaa-gfs-forecast"])
 
-    @patch("dynamical_catalog._stac._datasets", SAMPLE_DATASETS)
-    @patch("dynamical_catalog._open._open_dataset")
-    def test_open_normalizes_underscores(self, mock_open):
+    def test_open_normalizes_underscores(self, populated_catalog, mocker):
+        mock_open = mocker.patch("dynamical_catalog._open._open_dataset")
         dynamical_catalog.open("noaa_gfs_forecast")
-        mock_open.assert_called_once_with(SAMPLE_DATASETS["noaa-gfs-forecast"])
+        mock_open.assert_called_once_with(populated_catalog["noaa-gfs-forecast"])
 
-    @patch("dynamical_catalog._stac._datasets", SAMPLE_DATASETS)
-    @patch("dynamical_catalog._open._open_dataset")
-    def test_open_passes_kwargs(self, mock_open):
+    def test_open_passes_kwargs(self, populated_catalog, mocker):
+        mock_open = mocker.patch("dynamical_catalog._open._open_dataset")
         dynamical_catalog.open("noaa-gfs-forecast", chunks={"time": 1})
         mock_open.assert_called_once_with(
-            SAMPLE_DATASETS["noaa-gfs-forecast"], chunks={"time": 1}
+            populated_catalog["noaa-gfs-forecast"], chunks={"time": 1}
         )
 
-    @patch("dynamical_catalog._stac._datasets", SAMPLE_DATASETS)
-    def test_open_unknown_raises_valueerror(self):
+    def test_open_unknown_raises_valueerror(self, populated_catalog):
         with pytest.raises(ValueError, match="Unknown dataset"):
             dynamical_catalog.open("nonexistent")
 
+    def test_open_unknown_lists_available_sorted(self, populated_catalog):
+        with pytest.raises(ValueError) as excinfo:
+            dynamical_catalog.open("nonexistent")
+        message = str(excinfo.value)
+        # Available datasets are listed sorted in the error message.
+        sorted_ids = sorted(populated_catalog.keys())
+        positions = [message.find(ds_id) for ds_id in sorted_ids]
+        assert all(p >= 0 for p in positions)
+        assert positions == sorted(positions)
+
+    def test_open_triggers_catalog_fetch_on_cold_cache(self, sample_datasets, mocker):
+        # When the in-process cache is empty, calling open() should drive a
+        # catalog fetch through load_catalog() rather than silently failing.
+        stac._datasets = None
+        mock_load = mocker.patch(
+            "dynamical_catalog.load_catalog", return_value=sample_datasets
+        )
+        mock_open = mocker.patch("dynamical_catalog._open._open_dataset")
+
+        dynamical_catalog.open("noaa-gfs-forecast")
+
+        mock_load.assert_called_once()
+        mock_open.assert_called_once_with(sample_datasets["noaa-gfs-forecast"])
+
 
 class TestGetStore:
-    @patch("dynamical_catalog._stac._datasets", SAMPLE_DATASETS)
-    @patch("dynamical_catalog._open._get_store")
-    def test_get_store_by_hyphenated_id(self, mock_get_store):
+    def test_get_store_by_hyphenated_id(self, populated_catalog, mocker):
+        mock_get_store = mocker.patch("dynamical_catalog._open._get_store")
         dynamical_catalog.get_store("noaa-gfs-forecast")
-        mock_get_store.assert_called_once_with(SAMPLE_DATASETS["noaa-gfs-forecast"])
+        mock_get_store.assert_called_once_with(populated_catalog["noaa-gfs-forecast"])
 
-    @patch("dynamical_catalog._stac._datasets", SAMPLE_DATASETS)
-    @patch("dynamical_catalog._open._get_store")
-    def test_get_store_normalizes_underscores(self, mock_get_store):
+    def test_get_store_normalizes_underscores(self, populated_catalog, mocker):
+        mock_get_store = mocker.patch("dynamical_catalog._open._get_store")
         dynamical_catalog.get_store("noaa_gfs_forecast")
-        mock_get_store.assert_called_once_with(SAMPLE_DATASETS["noaa-gfs-forecast"])
+        mock_get_store.assert_called_once_with(populated_catalog["noaa-gfs-forecast"])
+
+    def test_get_store_triggers_catalog_fetch_on_cold_cache(
+        self, sample_datasets, mocker
+    ):
+        stac._datasets = None
+        mock_load = mocker.patch(
+            "dynamical_catalog.load_catalog", return_value=sample_datasets
+        )
+        mock_get_store = mocker.patch("dynamical_catalog._open._get_store")
+
+        dynamical_catalog.get_store("noaa-gfs-forecast")
+
+        mock_load.assert_called_once()
+        mock_get_store.assert_called_once_with(sample_datasets["noaa-gfs-forecast"])
 
 
 class TestList:
-    @patch("dynamical_catalog._stac._datasets", SAMPLE_DATASETS)
-    def test_list_returns_sorted_ids(self):
+    def test_list_returns_sorted_ids(self, populated_catalog):
         ids = dynamical_catalog.list()
         assert isinstance(ids, list)
         assert ids == sorted(ids)
         assert "noaa-gfs-forecast" in ids
 
+    def test_list_triggers_catalog_fetch_on_cold_cache(self, sample_datasets, mocker):
+        stac._datasets = None
+        mock_load = mocker.patch(
+            "dynamical_catalog.load_catalog", return_value=sample_datasets
+        )
+
+        ids = dynamical_catalog.list()
+
+        mock_load.assert_called_once()
+        assert ids == sorted(sample_datasets.keys())
+
 
 class TestIdentify:
     def test_identify_sets_identifier(self):
-        import dynamical_catalog._stac as stac_mod
+        dynamical_catalog.identify("marshall@dynamical.org")
+        assert stac._identifier == "marshall@dynamical.org"
 
-        old_id = stac_mod._identifier
-        try:
-            dynamical_catalog.identify("marshall@dynamical.org")
-            assert stac_mod._identifier == "marshall@dynamical.org"
-        finally:
-            stac_mod._identifier = old_id
+    def test_identify_overwrites_previous_value(self):
+        dynamical_catalog.identify("first@example.com")
+        dynamical_catalog.identify("second@example.com")
+        assert stac._identifier == "second@example.com"
+
+    def test_identify_empty_string_disables_identification(self):
+        # Pin current behavior: _user_agent() treats falsy identifiers as
+        # disabled. The follow-up exception PR will widen the type signature.
+        dynamical_catalog.identify("first@example.com")
+        dynamical_catalog.identify("")
+        expected = f"dynamical-catalog/{dynamical_catalog.__version__}"
+        assert stac._user_agent() == expected
+
+    def test_identify_none_disables_identification(self):
+        # Pin current behavior: even though identify() is typed as str, passing
+        # None disables identification because _user_agent() checks falsiness.
+        dynamical_catalog.identify("first@example.com")
+        dynamical_catalog.identify(None)  # type: ignore[arg-type]
+        expected = f"dynamical-catalog/{dynamical_catalog.__version__}"
+        assert stac._user_agent() == expected
+
+    def test_identify_non_string_is_coerced(self):
+        # Pin current behavior: f-string interpolation in _user_agent silently
+        # coerces non-strings. Documented as a regression guard, not endorsed.
+        dynamical_catalog.identify(42)  # type: ignore[arg-type]
+        assert "(42)" in stac._user_agent()
+
+
+class TestPublicSurface:
+    def test_all_lists_match_module_attributes(self):
+        # __all__ should not advertise names that aren't actually importable.
+        for name in dynamical_catalog.__all__:
+            assert hasattr(dynamical_catalog, name), (
+                f"__all__ lists {name!r} but module has no such attribute"
+            )
+
+    def test_expected_public_names_are_exported(self):
+        # Lock in the public API so accidental removals are caught in CI.
+        expected = {
+            "__version__",
+            "clear_cache",
+            "get_store",
+            "identify",
+            "list",
+            "open",
+        }
+        assert set(dynamical_catalog.__all__) == expected
+
+    def test_version_is_non_empty(self):
+        # An editable install missing package metadata would produce an empty
+        # version string, which silently breaks the User-Agent header.
+        assert isinstance(dynamical_catalog.__version__, str)
+        assert dynamical_catalog.__version__
