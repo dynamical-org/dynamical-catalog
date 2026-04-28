@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import concurrent.futures
+import http.client
 import json
 import time
 import urllib.error
@@ -43,6 +44,17 @@ def _user_agent() -> str:
     return ua
 
 
+# Mid-stream / connection-level errors that can leak past urllib.error.URLError
+# when the failure happens after urlopen() returns. Retrying is worth it because
+# the next attempt opens a fresh connection.
+_RETRIABLE_TRANSIENT_ERRORS = (
+    urllib.error.URLError,
+    TimeoutError,
+    http.client.RemoteDisconnected,
+    http.client.IncompleteRead,
+)
+
+
 def _fetch_json(url: str) -> Any:
     req = urllib.request.Request(url, headers={"User-Agent": _user_agent()})
     last_error: Exception | None = None
@@ -50,7 +62,21 @@ def _fetch_json(url: str) -> Any:
         try:
             with urllib.request.urlopen(req, timeout=_TIMEOUT_SECONDS) as resp:
                 body = resp.read()
-        except urllib.error.URLError as e:
+        except urllib.error.HTTPError as e:
+            # 4xx (except 429 Too Many Requests) won't change between attempts;
+            # fail fast.
+            if 400 <= e.code < 500 and e.code != 429:
+                raise CatalogFetchError(
+                    f"Failed to fetch dynamical.org STAC catalog from {url}: "
+                    f"HTTP {e.code} {e.reason}",
+                    url=url,
+                    attempts=attempt + 1,
+                ) from e
+            last_error = e
+            if attempt < _MAX_ATTEMPTS - 1:
+                time.sleep(_RETRY_BACKOFF_SECONDS)
+            continue
+        except _RETRIABLE_TRANSIENT_ERRORS as e:
             last_error = e
             if attempt < _MAX_ATTEMPTS - 1:
                 time.sleep(_RETRY_BACKOFF_SECONDS)

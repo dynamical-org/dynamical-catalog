@@ -1,3 +1,4 @@
+import http.client
 import urllib.error
 from unittest.mock import MagicMock, call
 
@@ -76,16 +77,77 @@ class TestFetchJson:
         assert excinfo.value.attempts == stac._MAX_ATTEMPTS
         assert isinstance(excinfo.value, DynamicalCatalogError)
 
-    def test_http_error_raises_catalog_fetch_error(self, mocker):
-        mocker.patch.object(
+    def test_http_4xx_raises_catalog_fetch_error_without_retry(self, mocker):
+        mocker.patch.object(stac.time, "sleep")
+        mock_urlopen = mocker.patch.object(
             stac.urllib.request,
             "urlopen",
             side_effect=urllib.error.HTTPError(
                 "https://example.com", 403, "Forbidden", {}, None
             ),
         )
-        with pytest.raises(CatalogFetchError, match="Failed to fetch"):
+        with pytest.raises(CatalogFetchError, match="HTTP 403"):
             stac._fetch_json("https://example.com")
+        assert mock_urlopen.call_count == 1
+
+    def test_http_429_is_retried(self, mocker):
+        mocker.patch.object(stac.time, "sleep")
+        mock_urlopen = mocker.patch.object(
+            stac.urllib.request,
+            "urlopen",
+            side_effect=urllib.error.HTTPError(
+                "https://example.com", 429, "Too Many Requests", {}, None
+            ),
+        )
+        with pytest.raises(CatalogFetchError):
+            stac._fetch_json("https://example.com")
+        assert mock_urlopen.call_count == stac._MAX_ATTEMPTS
+
+    def test_http_5xx_is_retried(self, mocker):
+        mocker.patch.object(stac.time, "sleep")
+        mock_urlopen = mocker.patch.object(
+            stac.urllib.request,
+            "urlopen",
+            side_effect=urllib.error.HTTPError(
+                "https://example.com", 503, "Service Unavailable", {}, None
+            ),
+        )
+        with pytest.raises(CatalogFetchError):
+            stac._fetch_json("https://example.com")
+        assert mock_urlopen.call_count == stac._MAX_ATTEMPTS
+
+    def test_timeout_error_is_retried(self, mocker):
+        mocker.patch.object(stac.time, "sleep")
+        mock_urlopen = mocker.patch.object(
+            stac.urllib.request,
+            "urlopen",
+            side_effect=TimeoutError("read timed out"),
+        )
+        with pytest.raises(CatalogFetchError):
+            stac._fetch_json("https://example.com")
+        assert mock_urlopen.call_count == stac._MAX_ATTEMPTS
+
+    def test_remote_disconnected_is_retried(self, mocker):
+        mocker.patch.object(stac.time, "sleep")
+        mock_urlopen = mocker.patch.object(
+            stac.urllib.request,
+            "urlopen",
+            side_effect=http.client.RemoteDisconnected("server closed connection"),
+        )
+        with pytest.raises(CatalogFetchError):
+            stac._fetch_json("https://example.com")
+        assert mock_urlopen.call_count == stac._MAX_ATTEMPTS
+
+    def test_incomplete_read_is_retried(self, mocker):
+        mocker.patch.object(stac.time, "sleep")
+        mock_urlopen = mocker.patch.object(
+            stac.urllib.request,
+            "urlopen",
+            side_effect=http.client.IncompleteRead(b"partial", expected=42),
+        )
+        with pytest.raises(CatalogFetchError):
+            stac._fetch_json("https://example.com")
+        assert mock_urlopen.call_count == stac._MAX_ATTEMPTS
 
     def test_retries_until_max_attempts_on_persistent_failure(self, mocker):
         mocker.patch.object(stac.time, "sleep")
