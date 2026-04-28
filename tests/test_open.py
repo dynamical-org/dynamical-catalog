@@ -1,9 +1,14 @@
 from unittest.mock import MagicMock, patch
 
+import icechunk
+import pytest
+import xarray as xr
+import zarr
+
 from dynamical_catalog._open import _get_store, _open_dataset
 
 
-class TestGetStore:
+class TestGetStoreMocked:
     @patch("dynamical_catalog._open.icechunk")
     def test_returns_icechunk_store(self, mock_icechunk):
         data = {
@@ -58,6 +63,100 @@ class TestGetStore:
             mock_icechunk.s3_storage.return_value,
             authorize_virtual_chunk_access=mock_icechunk.containers_credentials.return_value,
         )
+
+    @patch("dynamical_catalog._open.icechunk")
+    def test_virtual_chunk_containers_none_skips_authorization(self, mock_icechunk):
+        # An explicit None (vs missing key) takes the same code path as []
+        # via the `or []` fallback — no authorize block, no containers_credentials call.
+        data = {
+            "id": "test",
+            "icechunk": {"bucket": "b", "prefix": "p/", "region": "us-west-2"},
+            "virtual_chunk_containers": None,
+        }
+
+        _get_store(data)
+
+        mock_icechunk.containers_credentials.assert_not_called()
+        mock_icechunk.Repository.open.assert_called_once_with(
+            mock_icechunk.s3_storage.return_value,
+            authorize_virtual_chunk_access=None,
+        )
+
+    @patch("dynamical_catalog._open.icechunk")
+    def test_virtual_chunk_containers_empty_list_skips_authorization(
+        self, mock_icechunk
+    ):
+        # Empty list is falsy under `if prefixes`, so authorize stays None.
+        data = {
+            "id": "test",
+            "icechunk": {"bucket": "b", "prefix": "p/", "region": "us-west-2"},
+            "virtual_chunk_containers": [],
+        }
+
+        _get_store(data)
+
+        mock_icechunk.containers_credentials.assert_not_called()
+        mock_icechunk.Repository.open.assert_called_once_with(
+            mock_icechunk.s3_storage.return_value,
+            authorize_virtual_chunk_access=None,
+        )
+
+
+class TestGetStoreReal:
+    """Build a real icechunk repo on local disk and exercise _get_store end-to-end.
+
+    Catches drift in the real icechunk API that the fully-mocked tests above
+    would silently miss. No network: icechunk.s3_storage is patched to return
+    a local_filesystem_storage instead.
+    """
+
+    @pytest.fixture
+    def local_repo_path(self, tmp_path):
+        path = str(tmp_path / "repo")
+        storage = icechunk.local_filesystem_storage(path)
+        repo = icechunk.Repository.create(storage)
+        session = repo.writable_session("main")
+        root = zarr.create_group(store=session.store)
+        root.create_array(
+            name="values",
+            shape=(4,),
+            chunks=(4,),
+            dtype="int32",
+            compressors=None,
+            dimension_names=("i",),
+        )
+        session.commit("seed")
+        return path
+
+    def test_get_store_yields_a_readable_zarr_store(self, local_repo_path, mocker):
+        mocker.patch(
+            "dynamical_catalog._open.icechunk.s3_storage",
+            side_effect=lambda **_: icechunk.local_filesystem_storage(local_repo_path),
+        )
+        data = {
+            "id": "test",
+            "icechunk": {"bucket": "b", "prefix": "p/", "region": "us-west-2"},
+        }
+
+        store = _get_store(data)
+
+        # The store should be openable by zarr; the seeded array exists.
+        group = zarr.open_group(store=store, mode="r")
+        assert "values" in group
+
+    def test_open_dataset_yields_xarray_dataset(self, local_repo_path, mocker):
+        mocker.patch(
+            "dynamical_catalog._open.icechunk.s3_storage",
+            side_effect=lambda **_: icechunk.local_filesystem_storage(local_repo_path),
+        )
+        data = {
+            "id": "test",
+            "icechunk": {"bucket": "b", "prefix": "p/", "region": "us-west-2"},
+        }
+
+        ds = _open_dataset(data)
+        assert isinstance(ds, xr.Dataset)
+        assert "values" in ds.data_vars
 
 
 class TestOpenDataset:
