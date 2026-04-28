@@ -1,5 +1,9 @@
 """dynamical_catalog - Load dynamical.org weather datasets in one line."""
 
+# ruff: noqa: E501
+# The identify() docstring's first line is part of the user-facing API contract
+# and intentionally contains a long markdown link.
+
 from __future__ import annotations
 
 from importlib.metadata import version
