@@ -6,6 +6,10 @@ import xarray as xr
 import zarr
 
 from dynamical_catalog._open import _get_store, _open_dataset
+from dynamical_catalog.exceptions import (
+    DatasetOpenError,
+    DynamicalCatalogError,
+)
 
 
 class TestGetStoreMocked:
@@ -157,6 +161,36 @@ class TestGetStoreReal:
         ds = _open_dataset(data)
         assert isinstance(ds, xr.Dataset)
         assert "values" in ds.data_vars
+
+
+class TestGetStoreExceptionWrapping:
+    @patch("dynamical_catalog._open.icechunk")
+    def test_icechunk_error_is_wrapped(self, mock_icechunk):
+        # Real subclass so the except-clause in _get_store matches.
+        mock_icechunk.IcechunkError = icechunk.IcechunkError
+        mock_icechunk.Repository.open.side_effect = icechunk.IcechunkError(
+            "bucket not found"
+        )
+        data = {
+            "id": "test",
+            "icechunk": {"bucket": "b", "prefix": "p/", "region": "us-west-2"},
+        }
+        with pytest.raises(DatasetOpenError, match="Failed to open icechunk"):
+            _get_store(data)
+
+    @patch("dynamical_catalog._open.icechunk")
+    def test_wrapped_exception_chains_original(self, mock_icechunk):
+        mock_icechunk.IcechunkError = icechunk.IcechunkError
+        original = icechunk.IcechunkError("bucket not found")
+        mock_icechunk.Repository.open.side_effect = original
+        data = {
+            "id": "test",
+            "icechunk": {"bucket": "b", "prefix": "p/", "region": "us-west-2"},
+        }
+        with pytest.raises(DatasetOpenError) as excinfo:
+            _get_store(data)
+        assert excinfo.value.__cause__ is original
+        assert isinstance(excinfo.value, DynamicalCatalogError)
 
 
 class TestOpenDataset:

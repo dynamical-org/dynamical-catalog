@@ -165,5 +165,7 @@ class TestVirtualOpen:
             side_effect=_mock_stac_fetch(with_virtual_containers=False),
         ):
             ds = dynamical_catalog.open(_DATASET_ID)
+            # Lazy reads are out of scope for the DatasetOpenError wrap, so
+            # the underlying icechunk error still surfaces here.
             with pytest.raises(icechunk.IcechunkError, match="virtual chunk"):
                 _ = ds["grib_bytes"].values

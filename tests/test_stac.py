@@ -1,4 +1,3 @@
-import json
 import urllib.error
 from unittest.mock import MagicMock, call
 
@@ -6,6 +5,11 @@ import pytest
 
 import dynamical_catalog
 import dynamical_catalog._stac as stac
+from dynamical_catalog.exceptions import (
+    CatalogFetchError,
+    DynamicalCatalogError,
+    InvalidCatalogError,
+)
 
 _CATALOG_URL = "https://stac.dynamical.org/catalog.json"
 _COLLECTION_URL = "https://stac.dynamical.org/noaa-gfs-forecast/collection.json"
@@ -60,16 +64,19 @@ def _mock_urlopen_response(mocker, body: bytes):
 
 
 class TestFetchJson:
-    def test_network_error_raises_runtime_error(self, mocker):
+    def test_network_error_raises_catalog_fetch_error(self, mocker):
         mocker.patch.object(
             stac.urllib.request,
             "urlopen",
             side_effect=urllib.error.URLError("connection refused"),
         )
-        with pytest.raises(RuntimeError, match="Failed to fetch"):
+        with pytest.raises(CatalogFetchError, match="Failed to fetch") as excinfo:
             stac._fetch_json(_CATALOG_URL)
+        assert excinfo.value.url == _CATALOG_URL
+        assert excinfo.value.attempts == stac._MAX_ATTEMPTS
+        assert isinstance(excinfo.value, DynamicalCatalogError)
 
-    def test_http_error_raises_runtime_error(self, mocker):
+    def test_http_error_raises_catalog_fetch_error(self, mocker):
         mocker.patch.object(
             stac.urllib.request,
             "urlopen",
@@ -77,7 +84,7 @@ class TestFetchJson:
                 "https://example.com", 403, "Forbidden", {}, None
             ),
         )
-        with pytest.raises(RuntimeError, match="Failed to fetch"):
+        with pytest.raises(CatalogFetchError, match="Failed to fetch"):
             stac._fetch_json("https://example.com")
 
     def test_retries_until_max_attempts_on_persistent_failure(self, mocker):
@@ -87,7 +94,7 @@ class TestFetchJson:
             "urlopen",
             side_effect=urllib.error.URLError("connection refused"),
         )
-        with pytest.raises(RuntimeError):
+        with pytest.raises(CatalogFetchError):
             stac._fetch_json("https://example.com")
         assert mock_urlopen.call_count == stac._MAX_ATTEMPTS
 
@@ -116,7 +123,7 @@ class TestFetchJson:
             "urlopen",
             side_effect=urllib.error.URLError("connection refused"),
         )
-        with pytest.raises(RuntimeError):
+        with pytest.raises(CatalogFetchError):
             stac._fetch_json("https://example.com")
         # Sleeps between attempts but not after the final one.
         expected_sleeps = stac._MAX_ATTEMPTS - 1
@@ -126,13 +133,25 @@ class TestFetchJson:
             == [call(stac._RETRY_BACKOFF_SECONDS)] * expected_sleeps
         )
 
-    def test_malformed_json_response_leaks_decode_error(self, mocker):
-        # PIN: today, json.JSONDecodeError escapes the retry loop unwrapped.
-        # The follow-up exception PR will wrap this as CatalogFetchError and
-        # treat malformed JSON as a retriable error.
+    def test_malformed_json_response_raises_catalog_fetch_error(self, mocker):
+        # Malformed JSON is treated as a retriable failure inside the retry
+        # loop and surfaces as CatalogFetchError after exhaustion.
+        mocker.patch.object(stac.time, "sleep")
         _mock_urlopen_response(mocker, b"not json at all")
-        with pytest.raises(json.JSONDecodeError):
+        with pytest.raises(CatalogFetchError, match="Failed to fetch"):
             stac._fetch_json("https://example.com")
+
+    def test_malformed_json_is_retried(self, mocker):
+        mocker.patch.object(stac.time, "sleep")
+        mock_urlopen = mocker.patch.object(stac.urllib.request, "urlopen")
+        bad = MagicMock()
+        bad.__enter__ = lambda s: s
+        bad.__exit__ = lambda *a: None
+        bad.read.return_value = b"not json"
+        mock_urlopen.return_value = bad
+        with pytest.raises(CatalogFetchError):
+            stac._fetch_json("https://example.com")
+        assert mock_urlopen.call_count == stac._MAX_ATTEMPTS
 
     def test_uses_configured_timeout(self, mocker):
         mock_urlopen = _mock_urlopen_response(mocker, b"{}")
@@ -185,14 +204,17 @@ class TestParseCollection:
 
     def test_missing_icechunk_asset_raises(self):
         collection = {**MOCK_COLLECTION, "assets": {}}
-        with pytest.raises(ValueError, match="missing an 'icechunk' asset"):
+        with pytest.raises(InvalidCatalogError, match="missing an 'icechunk' asset"):
             stac._parse_collection(collection)
 
-    def test_missing_id_leaks_keyerror(self):
-        # PIN: collection missing 'id' raises bare KeyError. Follow-up will
-        # wrap this as InvalidCatalogError at the parse boundary.
+    def test_missing_id_raises_invalid_catalog_error(self):
         collection = {k: v for k, v in MOCK_COLLECTION.items() if k != "id"}
-        with pytest.raises(KeyError, match="id"):
+        with pytest.raises(InvalidCatalogError, match="missing 'id'"):
+            stac._parse_collection(collection)
+
+    def test_missing_assets_raises_invalid_catalog_error(self):
+        collection = {k: v for k, v in MOCK_COLLECTION.items() if k != "assets"}
+        with pytest.raises(InvalidCatalogError, match="missing 'assets'"):
             stac._parse_collection(collection)
 
     def test_non_s3_href_raises(self):
@@ -207,13 +229,10 @@ class TestParseCollection:
                 }
             },
         }
-        with pytest.raises(ValueError, match="is not an s3:// URL"):
+        with pytest.raises(InvalidCatalogError, match="scheme is not s3"):
             stac._parse_collection(bad)
 
-    def test_empty_prefix_raises_misleading_message(self):
-        # PIN: s3://bucket/ has an empty path after lstrip('/') and raises the
-        # generic "is not an s3:// URL" message. Follow-up will give this
-        # case its own InvalidCatalogError("missing prefix").
+    def test_empty_prefix_raises_missing_prefix(self):
         bad = {
             **MOCK_COLLECTION,
             "assets": {
@@ -225,12 +244,10 @@ class TestParseCollection:
                 }
             },
         }
-        with pytest.raises(ValueError, match="is not an s3:// URL"):
+        with pytest.raises(InvalidCatalogError, match="missing a prefix"):
             stac._parse_collection(bad)
 
-    def test_empty_bucket_raises_misleading_message(self):
-        # PIN: s3:///prefix/ has an empty netloc. Follow-up will give this
-        # case its own InvalidCatalogError("missing bucket").
+    def test_empty_bucket_raises_missing_bucket(self):
         bad = {
             **MOCK_COLLECTION,
             "assets": {
@@ -242,7 +259,7 @@ class TestParseCollection:
                 }
             },
         }
-        with pytest.raises(ValueError, match="is not an s3:// URL"):
+        with pytest.raises(InvalidCatalogError, match="missing a bucket"):
             stac._parse_collection(bad)
 
     def test_missing_region_raises(self):
@@ -254,20 +271,17 @@ class TestParseCollection:
                 }
             },
         }
-        with pytest.raises(ValueError, match="region_name"):
+        with pytest.raises(InvalidCatalogError, match="region_name"):
             stac._parse_collection(bad)
 
     def test_missing_storage_options_raises_via_region_check(self):
-        # PIN: when xarray:storage_options is absent entirely, the chained
-        # .get(..., {}) calls reach the region_name check and raise a
-        # region-shaped error. Follow-up may want a more direct message.
         bad = {
             **MOCK_COLLECTION,
             "assets": {
                 "icechunk": {"href": "s3://bucket/prefix/"},
             },
         }
-        with pytest.raises(ValueError, match="region_name"):
+        with pytest.raises(InvalidCatalogError, match="region_name"):
             stac._parse_collection(bad)
 
 
@@ -315,7 +329,9 @@ class TestParseVirtualChunkContainers:
                 }
             ]
         )
-        with pytest.raises(ValueError, match="url_prefix must be an s3:// string"):
+        with pytest.raises(
+            InvalidCatalogError, match="url_prefix must be an s3:// string"
+        ):
             stac._parse_collection(collection)
 
     def test_non_string_prefix_raises(self):
@@ -327,7 +343,9 @@ class TestParseVirtualChunkContainers:
                 }
             ]
         )
-        with pytest.raises(ValueError, match="url_prefix must be an s3:// string"):
+        with pytest.raises(
+            InvalidCatalogError, match="url_prefix must be an s3:// string"
+        ):
             stac._parse_collection(collection)
 
     def test_non_anonymous_credentials_raises(self):
@@ -343,14 +361,14 @@ class TestParseVirtualChunkContainers:
                 }
             ]
         )
-        with pytest.raises(ValueError, match="anonymous: true"):
+        with pytest.raises(InvalidCatalogError, match="anonymous: true"):
             stac._parse_collection(collection)
 
     def test_missing_credentials_raises(self):
         collection = self._collection_with_containers(
             [{"url_prefix": "s3://somebucket"}]
         )
-        with pytest.raises(ValueError, match="anonymous: true"):
+        with pytest.raises(InvalidCatalogError, match="anonymous: true"):
             stac._parse_collection(collection)
 
     def test_non_s3_credential_type_raises(self):
@@ -362,23 +380,21 @@ class TestParseVirtualChunkContainers:
                 }
             ]
         )
-        with pytest.raises(ValueError, match="anonymous: true"):
+        with pytest.raises(InvalidCatalogError, match="anonymous: true"):
             stac._parse_collection(collection)
 
-    def test_none_value_leaks_typeerror(self):
-        # PIN: today, an explicit None value for the containers key crashes
-        # iteration with TypeError. Follow-up will treat None as empty.
+    def test_none_value_treated_as_empty(self):
+        # An explicit None value for the containers key is treated as empty
+        # (the same as the key being absent).
         collection = self._collection_with_containers(None)
-        with pytest.raises(TypeError):
-            stac._parse_collection(collection)
+        result = stac._parse_collection(collection)
+        assert result["virtual_chunk_containers"] == []
 
-    def test_dict_value_leaks_attributeerror(self):
-        # PIN: a non-list, non-None value (e.g., a dict accidentally written
-        # in the STAC) crashes with AttributeError on the .get('url_prefix')
-        # call. Follow-up will raise InvalidCatalogError with a clearer
-        # message.
+    def test_dict_value_raises_invalid_catalog_error(self):
+        # A non-list, non-None value (e.g., a dict accidentally written in
+        # the STAC) raises InvalidCatalogError with a clear message.
         collection = self._collection_with_containers({"url_prefix": "s3://x"})
-        with pytest.raises(AttributeError):
+        with pytest.raises(InvalidCatalogError, match="must be a list"):
             stac._parse_collection(collection)
 
 
@@ -398,26 +414,20 @@ class TestLoadCatalog:
         result2 = stac.load_catalog()
         assert result2 is result
 
-    def test_missing_links_leaks_keyerror(self, mocker):
-        # PIN: catalog response without a 'links' key raises bare KeyError.
-        # Follow-up will wrap as InvalidCatalogError.
+    def test_missing_links_raises_invalid_catalog_error(self, mocker):
         catalog_without_links = {k: v for k, v in MOCK_CATALOG.items() if k != "links"}
         mocker.patch.object(stac, "_fetch_json", return_value=catalog_without_links)
-        with pytest.raises(KeyError, match="links"):
+        with pytest.raises(InvalidCatalogError, match="missing 'links'"):
             stac.load_catalog()
 
     def test_empty_catalog_returns_empty_dict(self, mocker):
-        # PIN: a catalog with no child links produces an empty datasets dict
-        # silently. Follow-up keeps this as valid behavior; documented here
-        # so a future change doesn't accidentally start raising.
+        # An empty catalog (no child links) is a valid state and returns {}.
         empty_catalog = {**MOCK_CATALOG, "links": []}
         mocker.patch.object(stac, "_fetch_json", return_value=empty_catalog)
         result = stac.load_catalog()
         assert result == {}
 
-    def test_duplicate_ids_silently_overwrite(self, mocker):
-        # PIN: when two child collections share an id, the later one silently
-        # wins. Follow-up will raise InvalidCatalogError listing the dupes.
+    def test_duplicate_ids_raise_invalid_catalog_error(self, mocker):
         catalog = {
             **MOCK_CATALOG,
             "links": [
@@ -452,24 +462,46 @@ class TestLoadCatalog:
         }
         mocker.patch.object(stac, "_fetch_json", side_effect=lambda url: responses[url])
 
-        result = stac.load_catalog()
-        assert list(result.keys()) == ["noaa-gfs-forecast"]
-        # Last write wins.
-        assert result["noaa-gfs-forecast"]["description"] == "second"
+        with pytest.raises(InvalidCatalogError, match="duplicate dataset id"):
+            stac.load_catalog()
 
-    def test_failing_child_fetch_propagates_lazily(self, mocker):
-        # PIN: a child fetch that raises propagates through pool.map's lazy
-        # iterator. Today the user sees the raw RuntimeError from
-        # _fetch_json. Follow-up will gather failures and raise a single
-        # CatalogFetchError listing every failed URL.
+    def test_failing_child_fetch_raises_catalog_fetch_error(self, mocker):
+        # A failing child fetch is gathered into a single CatalogFetchError
+        # listing every failed URL.
         def fetch(url):
             if url == _CATALOG_URL:
                 return MOCK_CATALOG
-            raise RuntimeError(f"Failed to fetch {url}")
+            raise CatalogFetchError(
+                f"Failed to fetch {url}", url=url, attempts=stac._MAX_ATTEMPTS
+            )
 
         mocker.patch.object(stac, "_fetch_json", side_effect=fetch)
-        with pytest.raises(RuntimeError, match="Failed to fetch"):
+        with pytest.raises(CatalogFetchError) as excinfo:
             stac.load_catalog()
+        assert _COLLECTION_URL in str(excinfo.value)
+
+    def test_failing_child_fetch_lists_all_failed_urls(self, mocker):
+        catalog = {
+            **MOCK_CATALOG,
+            "links": [
+                {"rel": "child", "href": "./first/collection.json"},
+                {"rel": "child", "href": "./second/collection.json"},
+            ],
+        }
+
+        def fetch(url):
+            if url == _CATALOG_URL:
+                return catalog
+            raise CatalogFetchError(
+                f"Failed to fetch {url}", url=url, attempts=stac._MAX_ATTEMPTS
+            )
+
+        mocker.patch.object(stac, "_fetch_json", side_effect=fetch)
+        with pytest.raises(CatalogFetchError) as excinfo:
+            stac.load_catalog()
+        message = str(excinfo.value)
+        assert "https://stac.dynamical.org/first/collection.json" in message
+        assert "https://stac.dynamical.org/second/collection.json" in message
 
 
 class TestClearCache:
@@ -510,11 +542,20 @@ class TestIdentifier:
         assert ua == f"dynamical-catalog/{dynamical_catalog.__version__}"
 
     def test_user_agent_omits_parens_when_identifier_is_empty(self):
-        # PIN: empty string is falsy, so _user_agent() already omits the
-        # parens. The follow-up exception PR will widen the type signature
-        # of identify() / set_identifier() to str | None and document this
-        # disable behavior.
-        stac._identifier = ""
+        # set_identifier normalizes "" to None; _user_agent treats falsy
+        # identifiers as disabled.
+        stac.set_identifier("")
         ua = stac._user_agent()
+        assert stac._identifier is None
         assert "(" not in ua
         assert ua == f"dynamical-catalog/{dynamical_catalog.__version__}"
+
+    def test_set_identifier_normalizes_empty_string_to_none(self):
+        stac.set_identifier("acme@example.com")
+        stac.set_identifier("")
+        assert stac._identifier is None
+
+    def test_set_identifier_accepts_none(self):
+        stac.set_identifier("acme@example.com")
+        stac.set_identifier(None)
+        assert stac._identifier is None

@@ -2,6 +2,10 @@ import pytest
 
 import dynamical_catalog
 import dynamical_catalog._stac as stac
+from dynamical_catalog.exceptions import (
+    DynamicalCatalogError,
+    UnknownDatasetError,
+)
 
 
 class TestOpen:
@@ -22,12 +26,22 @@ class TestOpen:
             populated_catalog["noaa-gfs-forecast"], chunks={"time": 1}
         )
 
-    def test_open_unknown_raises_valueerror(self, populated_catalog):
+    def test_open_unknown_raises_unknown_dataset_error(self, populated_catalog):
+        with pytest.raises(UnknownDatasetError, match="Unknown dataset"):
+            dynamical_catalog.open("nonexistent")
+
+    def test_open_unknown_is_value_error_for_compat(self, populated_catalog):
+        # UnknownDatasetError multi-inherits from ValueError so callers that
+        # caught ValueError before the typed-exception migration keep working.
         with pytest.raises(ValueError, match="Unknown dataset"):
             dynamical_catalog.open("nonexistent")
 
+    def test_open_unknown_is_dynamical_catalog_error(self, populated_catalog):
+        with pytest.raises(DynamicalCatalogError):
+            dynamical_catalog.open("nonexistent")
+
     def test_open_unknown_lists_available_sorted(self, populated_catalog):
-        with pytest.raises(ValueError) as excinfo:
+        with pytest.raises(UnknownDatasetError) as excinfo:
             dynamical_catalog.open("nonexistent")
         message = str(excinfo.value)
         # Available datasets are listed sorted in the error message.
@@ -107,24 +121,27 @@ class TestIdentify:
         assert stac._identifier == "second@example.com"
 
     def test_identify_empty_string_disables_identification(self):
-        # Pin current behavior: _user_agent() treats falsy identifiers as
-        # disabled. The follow-up exception PR will widen the type signature.
+        # identify() is typed as ``str | None``; empty string and None both
+        # disable identification. Empty string is normalized to None on
+        # assignment so reads of _identifier are predictable.
         dynamical_catalog.identify("first@example.com")
         dynamical_catalog.identify("")
+        assert stac._identifier is None
         expected = f"dynamical-catalog/{dynamical_catalog.__version__}"
         assert stac._user_agent() == expected
 
     def test_identify_none_disables_identification(self):
-        # Pin current behavior: even though identify() is typed as str, passing
-        # None disables identification because _user_agent() checks falsiness.
         dynamical_catalog.identify("first@example.com")
-        dynamical_catalog.identify(None)  # type: ignore[arg-type]
+        dynamical_catalog.identify(None)
+        assert stac._identifier is None
         expected = f"dynamical-catalog/{dynamical_catalog.__version__}"
         assert stac._user_agent() == expected
 
     def test_identify_non_string_is_coerced(self):
-        # Pin current behavior: f-string interpolation in _user_agent silently
-        # coerces non-strings. Documented as a regression guard, not endorsed.
+        # Pin current behavior: identify() is typed as ``str | None`` and
+        # callers passing other types are misusing the API. f-string
+        # interpolation in _user_agent silently coerces non-strings; this
+        # test documents that as a regression guard, not as an endorsed path.
         dynamical_catalog.identify(42)  # type: ignore[arg-type]
         assert "(42)" in stac._user_agent()
 
@@ -140,6 +157,11 @@ class TestPublicSurface:
     def test_expected_public_names_are_exported(self):
         # Lock in the public API so accidental removals are caught in CI.
         expected = {
+            "CatalogFetchError",
+            "DatasetOpenError",
+            "DynamicalCatalogError",
+            "InvalidCatalogError",
+            "UnknownDatasetError",
             "__version__",
             "clear_cache",
             "get_store",
