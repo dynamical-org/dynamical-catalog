@@ -134,24 +134,20 @@ class TestFetchJson:
         )
 
     def test_malformed_json_response_raises_catalog_fetch_error(self, mocker):
-        # Malformed JSON is treated as a retriable failure inside the retry
-        # loop and surfaces as CatalogFetchError after exhaustion.
-        mocker.patch.object(stac.time, "sleep")
+        # Malformed JSON is wrapped as CatalogFetchError so callers see a
+        # single exception type, but it is NOT retried — a malformed response
+        # body won't change between attempts.
         _mock_urlopen_response(mocker, b"not json at all")
-        with pytest.raises(CatalogFetchError, match="Failed to fetch"):
+        with pytest.raises(CatalogFetchError, match="not valid JSON"):
             stac._fetch_json("https://example.com")
 
-    def test_malformed_json_is_retried(self, mocker):
-        mocker.patch.object(stac.time, "sleep")
-        mock_urlopen = mocker.patch.object(stac.urllib.request, "urlopen")
-        bad = MagicMock()
-        bad.__enter__ = lambda s: s
-        bad.__exit__ = lambda *a: None
-        bad.read.return_value = b"not json"
-        mock_urlopen.return_value = bad
+    def test_malformed_json_is_not_retried(self, mocker):
+        mock_sleep = mocker.patch.object(stac.time, "sleep")
+        mock_urlopen = _mock_urlopen_response(mocker, b"not json")
         with pytest.raises(CatalogFetchError):
             stac._fetch_json("https://example.com")
-        assert mock_urlopen.call_count == stac._MAX_ATTEMPTS
+        assert mock_urlopen.call_count == 1
+        mock_sleep.assert_not_called()
 
     def test_uses_configured_timeout(self, mocker):
         mock_urlopen = _mock_urlopen_response(mocker, b"{}")

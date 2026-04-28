@@ -49,11 +49,22 @@ def _fetch_json(url: str) -> Any:
     for attempt in range(_MAX_ATTEMPTS):
         try:
             with urllib.request.urlopen(req, timeout=_TIMEOUT_SECONDS) as resp:
-                return json.loads(resp.read())
-        except (urllib.error.URLError, json.JSONDecodeError) as e:
+                body = resp.read()
+        except urllib.error.URLError as e:
             last_error = e
             if attempt < _MAX_ATTEMPTS - 1:
                 time.sleep(_RETRY_BACKOFF_SECONDS)
+            continue
+        try:
+            return json.loads(body)
+        except json.JSONDecodeError as e:
+            # Malformed JSON won't change between attempts; fail fast.
+            raise CatalogFetchError(
+                f"Failed to fetch dynamical.org STAC catalog from {url}: "
+                f"response was not valid JSON: {e}",
+                url=url,
+                attempts=attempt + 1,
+            ) from e
     raise CatalogFetchError(
         f"Failed to fetch dynamical.org STAC catalog from {url}: {last_error}",
         url=url,
