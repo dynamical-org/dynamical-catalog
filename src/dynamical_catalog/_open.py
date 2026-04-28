@@ -48,6 +48,5 @@ def _open_dataset(dataset_data: dict[str, Any], **kwargs: Any) -> xr.Dataset:
         return xr.open_zarr(store, **kwargs)
     except Exception as e:
         raise DatasetOpenError(
-            f"Failed to open dataset {dataset_data.get('id')!r} as xarray "
-            f"Dataset: {e}"
+            f"Failed to open dataset {dataset_data.get('id')!r} as xarray Dataset: {e}"
         ) from e
