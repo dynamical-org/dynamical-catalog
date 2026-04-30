@@ -1,9 +1,5 @@
 """dynamical_catalog - Load dynamical.org weather datasets in one line."""
 
-# ruff: noqa: E501
-# The identify() docstring's first line is part of the user-facing API contract
-# and intentionally contains a long markdown link.
-
 from __future__ import annotations
 
 from importlib.metadata import version
@@ -26,7 +22,7 @@ __version__ = version("dynamical-catalog")
 
 
 def identify(identifier: str | None) -> None:
-    """Set a user identifier to help [dynamical.org](http://dynamical.org) improve the catalog.
+    """Set a user identifier to help dynamical.org improve the catalog.
 
     The identifier (typically an email) is included in the User-Agent header.
 
