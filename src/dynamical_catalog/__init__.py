@@ -24,11 +24,7 @@ __version__ = version("dynamical-catalog")
 def identify(identifier: str | None) -> None:
     """Set a user identifier to help dynamical.org improve the catalog.
 
-    The identifier (typically an email) is included in the User-Agent header.
-
-    The User-Agent format is ``dynamical-catalog/<version> (<identifier>)``.
-    Passing an empty string or ``None`` disables identification — the
-    parenthesized identifier is omitted from subsequent requests.
+    Passing an empty string or ``None`` disables identification.
 
     Args:
         identifier: Email or company name (e.g. ``"you@example.com"``), or
