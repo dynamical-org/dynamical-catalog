@@ -25,12 +25,19 @@ __version__ = version("dynamical-catalog")
 def identify(identifier: str | None) -> None:
     """Set a user identifier to help dynamical.org improve the catalog.
 
-    Passing an empty string or ``None`` disables identification.
-
     Args:
         identifier: Email or company name (e.g. ``"you@example.com"``), or
             ``None`` / ``""`` to disable identification.
     """
+    if identifier is not None and not isinstance(identifier, str):
+        warnings.warn(
+            (
+                "Passing non-str identifiers to identify() is deprecated and will be "
+                "removed in 1.0; pass str or None."
+            ),
+            DeprecationWarning,
+            stacklevel=2,
+        )
     set_identifier(identifier)
 
 
