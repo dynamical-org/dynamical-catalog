@@ -155,13 +155,45 @@ class TestIdentify:
         expected = f"dynamical-catalog/{dynamical_catalog.__version__}"
         assert stac._user_agent() == expected
 
-    def test_identify_non_string_is_coerced(self):
-        # Pin current behavior: identify() is typed as ``str | None`` and
-        # callers passing other types are misusing the API. f-string
-        # interpolation in _user_agent silently coerces non-strings; this
-        # test documents that as a regression guard, not as an endorsed path.
-        dynamical_catalog.identify(42)  # type: ignore[arg-type]
+    def test_identify_non_string_warns_deprecated_behavior(self):
+        with pytest.warns(DeprecationWarning, match="deprecated and will be removed in 1.0"):
+            dynamical_catalog.identify(42)  # type: ignore[arg-type]
         assert "(42)" in stac._user_agent()
+
+
+class TestClearCache:
+    def test_clear_cache_resets_cached_catalog(self, sample_datasets, mocker):
+        # Prime cache, then ensure clear_cache forces a refetch path.
+        stac._datasets = sample_datasets
+        dynamical_catalog.clear_cache()
+
+        mock_load = mocker.patch(
+            "dynamical_catalog.load_catalog", return_value=sample_datasets
+        )
+        mock_open = mocker.patch("dynamical_catalog._open._open_dataset")
+
+        dynamical_catalog.open("noaa-gfs-forecast")
+
+        mock_load.assert_called_once()
+        mock_open.assert_called_once_with(sample_datasets["noaa-gfs-forecast"])
+
+    def test_clear_cache_returns_none(self):
+        assert dynamical_catalog.clear_cache() is None
+
+
+class TestPublicExceptions:
+    def test_catalog_fetch_error_exposes_urls_and_attempts(self):
+        err = dynamical_catalog.CatalogFetchError(
+            "boom", urls=("https://example.com",), attempts=3
+        )
+
+        assert err.urls == ("https://example.com",)
+        assert err.attempts == 3
+
+    def test_dataset_open_error_exposes_dataset_id(self):
+        err = dynamical_catalog.DatasetOpenError("boom", dataset_id="abc")
+
+        assert err.dataset_id == "abc"
 
 
 class TestPublicSurface:
