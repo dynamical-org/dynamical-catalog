@@ -1,3 +1,5 @@
+import warnings
+
 import pytest
 
 import dynamical_catalog
@@ -13,6 +15,24 @@ class TestOpen:
         mock_open = mocker.patch("dynamical_catalog._open._open_dataset")
         dynamical_catalog.open("noaa-gfs-forecast")
         mock_open.assert_called_once_with(populated_catalog["noaa-gfs-forecast"])
+
+    def test_open_underscore_id_resolves_with_deprecation_warning(
+        self, populated_catalog, mocker
+    ):
+        mock_open = mocker.patch("dynamical_catalog._open._open_dataset")
+        with pytest.warns(DeprecationWarning, match="Underscores in dataset ids"):
+            dynamical_catalog.open("noaa_gfs_forecast")
+        mock_open.assert_called_once_with(populated_catalog["noaa-gfs-forecast"])
+
+    def test_open_underscore_unknown_id_raises_without_deprecation_warning(
+        self, populated_catalog
+    ):
+        # An underscore id that doesn't resolve should surface as
+        # UnknownDatasetError, not a misleading deprecation notice.
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", DeprecationWarning)
+            with pytest.raises(UnknownDatasetError):
+                dynamical_catalog.open("nonexistent_dataset")
 
     def test_open_passes_kwargs(self, populated_catalog, mocker):
         mock_open = mocker.patch("dynamical_catalog._open._open_dataset")
@@ -64,6 +84,14 @@ class TestGetStore:
     def test_get_store_by_dataset_id(self, populated_catalog, mocker):
         mock_get_store = mocker.patch("dynamical_catalog._open._get_store")
         dynamical_catalog.get_store("noaa-gfs-forecast")
+        mock_get_store.assert_called_once_with(populated_catalog["noaa-gfs-forecast"])
+
+    def test_get_store_underscore_id_resolves_with_deprecation_warning(
+        self, populated_catalog, mocker
+    ):
+        mock_get_store = mocker.patch("dynamical_catalog._open._get_store")
+        with pytest.warns(DeprecationWarning, match="Underscores in dataset ids"):
+            dynamical_catalog.get_store("noaa_gfs_forecast")
         mock_get_store.assert_called_once_with(populated_catalog["noaa-gfs-forecast"])
 
     def test_get_store_triggers_catalog_fetch_on_cold_cache(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from importlib.metadata import version
 from typing import TYPE_CHECKING, Any
 
@@ -102,12 +103,24 @@ def list() -> list[str]:  # type: ignore[valid-type]
 
 def _resolve(dataset_id: str) -> dict[str, Any]:
     datasets = load_catalog()
-    if dataset_id not in datasets:
-        available = ", ".join(sorted(datasets.keys()))
-        raise UnknownDatasetError(
-            f"Unknown dataset {dataset_id!r}. Available: {available}"
-        )
-    return datasets[dataset_id]
+    if dataset_id in datasets:
+        return datasets[dataset_id]
+    # Underscore form is deprecated but still accepted when it resolves to a
+    # real id. Only warn on resolved hits — a typo with underscores should
+    # surface as UnknownDatasetError, not a deprecation notice.
+    if "_" in dataset_id:
+        normalized_id = dataset_id.replace("_", "-")
+        if normalized_id in datasets:
+            warnings.warn(
+                f"Underscores in dataset ids are deprecated and will be "
+                f"removed in 1.0; use {normalized_id!r} instead of "
+                f"{dataset_id!r}.",
+                DeprecationWarning,
+                stacklevel=3,
+            )
+            return datasets[normalized_id]
+    available = ", ".join(sorted(datasets.keys()))
+    raise UnknownDatasetError(f"Unknown dataset {dataset_id!r}. Available: {available}")
 
 
 __all__ = [
