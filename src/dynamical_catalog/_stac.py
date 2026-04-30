@@ -69,7 +69,7 @@ def _fetch_json(url: str) -> Any:
                 raise CatalogFetchError(
                     f"Failed to fetch dynamical.org STAC catalog from {url}: "
                     f"HTTP {e.code} {e.reason}",
-                    url=url,
+                    urls=(url,),
                     attempts=attempt + 1,
                 ) from e
             last_error = e
@@ -88,12 +88,12 @@ def _fetch_json(url: str) -> Any:
             raise CatalogFetchError(
                 f"Failed to fetch dynamical.org STAC catalog from {url}: "
                 f"response was not valid JSON: {e}",
-                url=url,
+                urls=(url,),
                 attempts=attempt + 1,
             ) from e
     raise CatalogFetchError(
         f"Failed to fetch dynamical.org STAC catalog from {url}: {last_error}",
-        url=url,
+        urls=(url,),
         attempts=_MAX_ATTEMPTS,
     ) from last_error
 
@@ -223,12 +223,11 @@ def load_catalog() -> dict[str, dict[str, Any]]:
                 failures.append((urls[index], e))
 
     if failures:
-        failed_urls = [url for url, _ in failures]
-        joined = ", ".join(failed_urls)
+        failed_urls = tuple(url for url, _ in failures)
         first_error = failures[0][1]
         raise CatalogFetchError(
-            f"Failed to fetch {len(failures)} STAC collection(s): {joined}",
-            url=joined,
+            f"Failed to fetch {len(failures)} STAC collection(s): {failed_urls}",
+            urls=failed_urls,
             attempts=_MAX_ATTEMPTS,
         ) from first_error
 

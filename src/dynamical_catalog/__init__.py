@@ -26,7 +26,7 @@ __version__ = version("dynamical-catalog")
 
 
 def identify(identifier: str | None) -> None:
-    """Set a user identifier to help [dynamical.org](http://dynamical.org) improve our catalog.
+    """Set a user identifier to help [dynamical.org](http://dynamical.org) improve the catalog.
 
     The identifier (typically an email) is included in the User-Agent header.
 

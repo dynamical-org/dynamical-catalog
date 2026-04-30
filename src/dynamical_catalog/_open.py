@@ -27,6 +27,7 @@ def _get_store(dataset_data: dict[str, Any]) -> Store:
         if prefixes
         else None
     )
+    dataset_id = dataset_data.get("id")
     try:
         repo = icechunk.Repository.open(
             storage, authorize_virtual_chunk_access=authorize
@@ -35,18 +36,20 @@ def _get_store(dataset_data: dict[str, Any]) -> Store:
         return session.store
     except icechunk.IcechunkError as e:
         raise DatasetOpenError(
-            f"Failed to open icechunk repository for dataset "
-            f"{dataset_data.get('id')!r}: {e}"
+            f"Failed to open icechunk repository for dataset {dataset_id!r}: {e}",
+            dataset_id=dataset_id,
         ) from e
 
 
 def _open_dataset(dataset_data: dict[str, Any], **kwargs: Any) -> xr.Dataset:
     # icechunk manages its own metadata; zarr's consolidated metadata doesn't apply.
     kwargs.setdefault("consolidated", False)
+    dataset_id = dataset_data.get("id")
     store = _get_store(dataset_data)
     try:
         return xr.open_zarr(store, **kwargs)
     except Exception as e:
         raise DatasetOpenError(
-            f"Failed to open dataset {dataset_data.get('id')!r} as xarray Dataset: {e}"
+            f"Failed to open dataset {dataset_id!r} as xarray Dataset: {e}",
+            dataset_id=dataset_id,
         ) from e

@@ -26,7 +26,9 @@ class CatalogFetchError(DynamicalCatalogError):
     Covers network errors, HTTP errors, and malformed JSON responses.
 
     Attributes:
-        url: The URL (or list of URLs, joined) that failed.
+        urls: Tuple of URLs that failed. A single-URL fetch failure
+            stores a one-element tuple; aggregated child-collection
+            failures store every failed URL.
         attempts: Number of attempts made before giving up.
     """
 
@@ -34,11 +36,11 @@ class CatalogFetchError(DynamicalCatalogError):
         self,
         message: str,
         *,
-        url: str,
+        urls: tuple[str, ...],
         attempts: int,
     ) -> None:
         super().__init__(message)
-        self.url = url
+        self.urls = urls
         self.attempts = attempts
 
 
@@ -52,7 +54,19 @@ class DatasetOpenError(DynamicalCatalogError):
     Covers eager errors at open time (e.g. bucket not found, virtual chunk
     authorization). Lazy errors raised when the caller later reads data
     from the returned :class:`xarray.Dataset` are not wrapped.
+
+    Attributes:
+        dataset_id: The dataset id that failed to open, if known.
     """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        dataset_id: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.dataset_id = dataset_id
 
 
 __all__ = [

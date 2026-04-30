@@ -73,7 +73,7 @@ class TestFetchJson:
         )
         with pytest.raises(CatalogFetchError, match="Failed to fetch") as excinfo:
             stac._fetch_json(_CATALOG_URL)
-        assert excinfo.value.url == _CATALOG_URL
+        assert excinfo.value.urls == (_CATALOG_URL,)
         assert excinfo.value.attempts == stac._MAX_ATTEMPTS
         assert isinstance(excinfo.value, DynamicalCatalogError)
 
@@ -530,13 +530,13 @@ class TestLoadCatalog:
             if url == _CATALOG_URL:
                 return MOCK_CATALOG
             raise CatalogFetchError(
-                f"Failed to fetch {url}", url=url, attempts=stac._MAX_ATTEMPTS
+                f"Failed to fetch {url}", urls=(url,), attempts=stac._MAX_ATTEMPTS
             )
 
         mocker.patch.object(stac, "_fetch_json", side_effect=fetch)
         with pytest.raises(CatalogFetchError) as excinfo:
             stac.load_catalog()
-        assert _COLLECTION_URL in str(excinfo.value)
+        assert excinfo.value.urls == (_COLLECTION_URL,)
 
     def test_failing_child_fetch_lists_all_failed_urls(self, mocker):
         catalog = {
@@ -551,15 +551,18 @@ class TestLoadCatalog:
             if url == _CATALOG_URL:
                 return catalog
             raise CatalogFetchError(
-                f"Failed to fetch {url}", url=url, attempts=stac._MAX_ATTEMPTS
+                f"Failed to fetch {url}", urls=(url,), attempts=stac._MAX_ATTEMPTS
             )
 
         mocker.patch.object(stac, "_fetch_json", side_effect=fetch)
         with pytest.raises(CatalogFetchError) as excinfo:
             stac.load_catalog()
-        message = str(excinfo.value)
-        assert "https://stac.dynamical.org/first/collection.json" in message
-        assert "https://stac.dynamical.org/second/collection.json" in message
+        # urls is a tuple of every failed collection URL (order not guaranteed
+        # because as_completed schedules them).
+        assert set(excinfo.value.urls) == {
+            "https://stac.dynamical.org/first/collection.json",
+            "https://stac.dynamical.org/second/collection.json",
+        }
 
 
 class TestClearCache:

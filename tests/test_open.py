@@ -175,8 +175,9 @@ class TestGetStoreExceptionWrapping:
             "id": "test",
             "icechunk": {"bucket": "b", "prefix": "p/", "region": "us-west-2"},
         }
-        with pytest.raises(DatasetOpenError, match="Failed to open icechunk"):
+        with pytest.raises(DatasetOpenError, match="Failed to open icechunk") as exc:
             _get_store(data)
+        assert exc.value.dataset_id == "test"
 
     @patch("dynamical_catalog._open.icechunk")
     def test_wrapped_exception_chains_original(self, mock_icechunk):
@@ -190,6 +191,7 @@ class TestGetStoreExceptionWrapping:
         with pytest.raises(DatasetOpenError) as excinfo:
             _get_store(data)
         assert excinfo.value.__cause__ is original
+        assert excinfo.value.dataset_id == "test"
         assert isinstance(excinfo.value, DynamicalCatalogError)
 
 
