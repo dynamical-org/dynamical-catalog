@@ -14,11 +14,6 @@ class TestOpen:
         dynamical_catalog.open("noaa-gfs-forecast")
         mock_open.assert_called_once_with(populated_catalog["noaa-gfs-forecast"])
 
-    def test_open_normalizes_underscores(self, populated_catalog, mocker):
-        mock_open = mocker.patch("dynamical_catalog._open._open_dataset")
-        dynamical_catalog.open("noaa_gfs_forecast")
-        mock_open.assert_called_once_with(populated_catalog["noaa-gfs-forecast"])
-
     def test_open_passes_kwargs(self, populated_catalog, mocker):
         mock_open = mocker.patch("dynamical_catalog._open._open_dataset")
         dynamical_catalog.open("noaa-gfs-forecast", chunks={"time": 1})
@@ -69,11 +64,6 @@ class TestGetStore:
     def test_get_store_by_hyphenated_id(self, populated_catalog, mocker):
         mock_get_store = mocker.patch("dynamical_catalog._open._get_store")
         dynamical_catalog.get_store("noaa-gfs-forecast")
-        mock_get_store.assert_called_once_with(populated_catalog["noaa-gfs-forecast"])
-
-    def test_get_store_normalizes_underscores(self, populated_catalog, mocker):
-        mock_get_store = mocker.patch("dynamical_catalog._open._get_store")
-        dynamical_catalog.get_store("noaa_gfs_forecast")
         mock_get_store.assert_called_once_with(populated_catalog["noaa-gfs-forecast"])
 
     def test_get_store_triggers_catalog_fetch_on_cold_cache(

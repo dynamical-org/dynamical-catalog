@@ -41,7 +41,6 @@ def get_store(dataset_id: str) -> Store:
 
     Args:
         dataset_id: Dataset identifier (e.g. ``"noaa-gfs-forecast"``).
-            Underscores are also accepted (e.g. ``"noaa_gfs_forecast"``).
 
     Returns:
         A read-only :class:`zarr.abc.store.Store` backed by the dataset's
@@ -66,7 +65,6 @@ def open(dataset_id: str, **kwargs: Any) -> xr.Dataset:
 
     Args:
         dataset_id: Dataset identifier (e.g. ``"noaa-gfs-forecast"``).
-            Underscores are also accepted (e.g. ``"noaa_gfs_forecast"``).
         **kwargs: Passed through to :func:`xarray.open_zarr`.
 
     Returns:
@@ -105,13 +103,12 @@ def list() -> list[str]:  # type: ignore[valid-type]
 
 def _resolve(dataset_id: str) -> dict[str, Any]:
     datasets = load_catalog()
-    normalized_id = dataset_id.replace("_", "-")
-    if normalized_id not in datasets:
+    if dataset_id not in datasets:
         available = ", ".join(sorted(datasets.keys()))
         raise UnknownDatasetError(
             f"Unknown dataset {dataset_id!r}. Available: {available}"
         )
-    return datasets[normalized_id]
+    return datasets[dataset_id]
 
 
 __all__ = [
