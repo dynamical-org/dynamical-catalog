@@ -9,7 +9,7 @@ from dynamical_catalog.exceptions import (
 
 
 class TestOpen:
-    def test_open_by_id(self, populated_catalog, mocker):
+    def test_open_by_dataset_id(self, populated_catalog, mocker):
         mock_open = mocker.patch("dynamical_catalog._open._open_dataset")
         dynamical_catalog.open("noaa-gfs-forecast")
         mock_open.assert_called_once_with(populated_catalog["noaa-gfs-forecast"])
@@ -61,7 +61,7 @@ class TestOpen:
 
 
 class TestGetStore:
-    def test_get_store_by_id(self, populated_catalog, mocker):
+    def test_get_store_by_dataset_id(self, populated_catalog, mocker):
         mock_get_store = mocker.patch("dynamical_catalog._open._get_store")
         dynamical_catalog.get_store("noaa-gfs-forecast")
         mock_get_store.assert_called_once_with(populated_catalog["noaa-gfs-forecast"])
