@@ -10,10 +10,10 @@ from dynamical_catalog.exceptions import (
 )
 
 
-class TestOpen:
+class TestOpenDataset:
     def test_open_by_dataset_id(self, populated_catalog, mocker):
         mock_open = mocker.patch("dynamical_catalog._open._open_dataset")
-        dynamical_catalog.open("noaa-gfs-forecast")
+        dynamical_catalog.open_dataset("noaa-gfs-forecast")
         mock_open.assert_called_once_with(populated_catalog["noaa-gfs-forecast"])
 
     def test_open_underscore_id_resolves_with_deprecation_warning(
@@ -21,7 +21,7 @@ class TestOpen:
     ):
         mock_open = mocker.patch("dynamical_catalog._open._open_dataset")
         with pytest.warns(DeprecationWarning, match="Underscores in dataset ids"):
-            dynamical_catalog.open("noaa_gfs_forecast")
+            dynamical_catalog.open_dataset("noaa_gfs_forecast")
         mock_open.assert_called_once_with(populated_catalog["noaa-gfs-forecast"])
 
     def test_open_underscore_unknown_id_raises_without_deprecation_warning(
@@ -32,32 +32,32 @@ class TestOpen:
         with warnings.catch_warnings():
             warnings.simplefilter("error", DeprecationWarning)
             with pytest.raises(UnknownDatasetError):
-                dynamical_catalog.open("nonexistent_dataset")
+                dynamical_catalog.open_dataset("nonexistent_dataset")
 
     def test_open_passes_kwargs(self, populated_catalog, mocker):
         mock_open = mocker.patch("dynamical_catalog._open._open_dataset")
-        dynamical_catalog.open("noaa-gfs-forecast", chunks={"time": 1})
+        dynamical_catalog.open_dataset("noaa-gfs-forecast", chunks={"time": 1})
         mock_open.assert_called_once_with(
             populated_catalog["noaa-gfs-forecast"], chunks={"time": 1}
         )
 
     def test_open_unknown_raises_unknown_dataset_error(self, populated_catalog):
         with pytest.raises(UnknownDatasetError, match="Unknown dataset"):
-            dynamical_catalog.open("nonexistent")
+            dynamical_catalog.open_dataset("nonexistent")
 
     def test_open_unknown_is_value_error_for_compat(self, populated_catalog):
         # UnknownDatasetError multi-inherits from ValueError so callers that
         # caught ValueError before the typed-exception migration keep working.
         with pytest.raises(ValueError, match="Unknown dataset"):
-            dynamical_catalog.open("nonexistent")
+            dynamical_catalog.open_dataset("nonexistent")
 
     def test_open_unknown_is_dynamical_catalog_error(self, populated_catalog):
         with pytest.raises(DynamicalCatalogError):
-            dynamical_catalog.open("nonexistent")
+            dynamical_catalog.open_dataset("nonexistent")
 
     def test_open_unknown_lists_available_sorted(self, populated_catalog):
         with pytest.raises(UnknownDatasetError) as excinfo:
-            dynamical_catalog.open("nonexistent")
+            dynamical_catalog.open_dataset("nonexistent")
         message = str(excinfo.value)
         # Available datasets are listed sorted in the error message.
         sorted_ids = sorted(populated_catalog.keys())
@@ -74,7 +74,7 @@ class TestOpen:
         )
         mock_open = mocker.patch("dynamical_catalog._open._open_dataset")
 
-        dynamical_catalog.open("noaa-gfs-forecast")
+        dynamical_catalog.open_dataset("noaa-gfs-forecast")
 
         mock_load.assert_called_once()
         mock_open.assert_called_once_with(sample_datasets["noaa-gfs-forecast"])
@@ -109,9 +109,9 @@ class TestGetStore:
         mock_get_store.assert_called_once_with(sample_datasets["noaa-gfs-forecast"])
 
 
-class TestList:
+class TestListDatasetIds:
     def test_list_returns_sorted_ids(self, populated_catalog):
-        ids = dynamical_catalog.list()
+        ids = dynamical_catalog.list_dataset_ids()
         assert isinstance(ids, list)
         assert ids == sorted(ids)
         assert "noaa-gfs-forecast" in ids
@@ -122,10 +122,22 @@ class TestList:
             "dynamical_catalog.load_catalog", return_value=sample_datasets
         )
 
-        ids = dynamical_catalog.list()
+        ids = dynamical_catalog.list_dataset_ids()
 
         mock_load.assert_called_once()
         assert ids == sorted(sample_datasets.keys())
+
+
+class TestLegacyAliases:
+    def test_open_is_alias_for_open_dataset(self, populated_catalog, mocker):
+        mock_open = mocker.patch("dynamical_catalog._open._open_dataset")
+        dynamical_catalog.open("noaa-gfs-forecast", chunks={"time": 1})
+        mock_open.assert_called_once_with(
+            populated_catalog["noaa-gfs-forecast"], chunks={"time": 1}
+        )
+
+    def test_list_is_alias_for_list_dataset_ids(self, populated_catalog):
+        assert dynamical_catalog.list() == dynamical_catalog.list_dataset_ids()
 
 
 class TestIdentify:
@@ -185,7 +197,9 @@ class TestPublicSurface:
             "get_store",
             "identify",
             "list",
+            "list_dataset_ids",
             "open",
+            "open_dataset",
         }
         assert set(dynamical_catalog.__all__) == expected
 

@@ -58,7 +58,7 @@ def get_store(dataset_id: str) -> Store:
     return _get_store(_resolve(dataset_id))
 
 
-def open(dataset_id: str, **kwargs: Any) -> xr.Dataset:
+def open_dataset(dataset_id: str, **kwargs: Any) -> xr.Dataset:
     """Open a dynamical.org dataset by ID as an :class:`xarray.Dataset`.
 
     On the first call (per process) this fetches the STAC catalog from
@@ -85,7 +85,7 @@ def open(dataset_id: str, **kwargs: Any) -> xr.Dataset:
     return _open_dataset(_resolve(dataset_id), **kwargs)
 
 
-def list() -> list[str]:  # type: ignore[valid-type]
+def list_dataset_ids() -> list[str]:  # type: ignore[valid-type]
     """List available dataset IDs, sorted alphabetically.
 
     On the first call (per process) this fetches the STAC catalog from
@@ -99,6 +99,24 @@ def list() -> list[str]:  # type: ignore[valid-type]
         InvalidCatalogError: The catalog response was reachable but malformed.
     """
     return sorted(load_catalog().keys())
+
+
+def open(dataset_id: str, **kwargs: Any) -> xr.Dataset:
+    """Alias for :func:`open_dataset`.
+
+    .. deprecated:: 1.0
+        Use :func:`open_dataset` instead. ``open`` will be removed in 1.0.
+    """
+    return open_dataset(dataset_id, **kwargs)
+
+
+def list() -> list[str]:  # type: ignore[valid-type]
+    """Alias for :func:`list_dataset_ids`.
+
+    .. deprecated:: 1.0
+        Use :func:`list_dataset_ids` instead. ``list`` will be removed in 1.0.
+    """
+    return list_dataset_ids()
 
 
 def _resolve(dataset_id: str) -> dict[str, Any]:
@@ -134,5 +152,7 @@ __all__ = [
     "get_store",
     "identify",
     "list",
+    "list_dataset_ids",
     "open",
+    "open_dataset",
 ]

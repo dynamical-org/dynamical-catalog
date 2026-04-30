@@ -23,15 +23,15 @@ import dynamical_catalog
 dynamical_catalog.identify("you@example.com")
 
 # Open a dataset as an xarray Dataset via its icechunk repository
-ds = dynamical_catalog.open("noaa-gfs-forecast")
+ds = dynamical_catalog.open_dataset("noaa-gfs-forecast")
 
 # Additional arguments are passed through to `xr.open_zarr`
-ds = dynamical_catalog.open("noaa-gfs-forecast", chunks=None)
+ds = dynamical_catalog.open_dataset("noaa-gfs-forecast", chunks=None)
 
 # Get the underlying Zarr store if you want even more control
 store = dynamical_catalog.get_store("noaa-gfs-forecast")
 ds = xr.open_zarr(store)
 
 # List all available datasets
-dynamical_catalog.list()
+dynamical_catalog.list_dataset_ids()
 ```

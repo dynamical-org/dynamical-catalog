@@ -151,7 +151,7 @@ class TestVirtualOpen:
             "_fetch_json",
             side_effect=_mock_stac_fetch(with_virtual_containers=True),
         ):
-            ds = dynamical_catalog.open(_DATASET_ID)
+            ds = dynamical_catalog.open_dataset(_DATASET_ID)
             assert isinstance(ds, xr.Dataset)
             head = ds["grib_bytes"].values[:4]
             assert bytes(head.tolist()) == b"GRIB"
@@ -164,7 +164,7 @@ class TestVirtualOpen:
             "_fetch_json",
             side_effect=_mock_stac_fetch(with_virtual_containers=False),
         ):
-            ds = dynamical_catalog.open(_DATASET_ID)
+            ds = dynamical_catalog.open_dataset(_DATASET_ID)
             # Lazy reads are out of scope for the DatasetOpenError wrap, so
             # the underlying icechunk error still surfaces here.
             with pytest.raises(icechunk.IcechunkError, match="virtual chunk"):
