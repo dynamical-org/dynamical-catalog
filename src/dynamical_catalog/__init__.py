@@ -31,8 +31,10 @@ def identify(identifier: str | None) -> None:
     """
     if identifier is not None and not isinstance(identifier, str):
         warnings.warn(
-            "Passing non-str identifiers to identify() is deprecated and will be removed in 1.0; "
-            "pass str or None.",
+            (
+                "Passing non-str identifiers to identify() is deprecated and will be "
+                "removed in 1.0; pass str or None."
+            ),
             DeprecationWarning,
             stacklevel=2,
         )

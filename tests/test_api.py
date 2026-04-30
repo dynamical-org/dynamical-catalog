@@ -156,7 +156,10 @@ class TestIdentify:
         assert stac._user_agent() == expected
 
     def test_identify_non_string_warns_deprecated_behavior(self):
-        with pytest.warns(DeprecationWarning, match="deprecated and will be removed in 1.0"):
+        with pytest.warns(
+            DeprecationWarning,
+            match="deprecated and will be removed in 1.0",
+        ):
             dynamical_catalog.identify(42)  # type: ignore[arg-type]
         assert "(42)" in stac._user_agent()
 
