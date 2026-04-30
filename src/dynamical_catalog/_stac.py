@@ -197,7 +197,6 @@ def load_catalog() -> dict[str, dict[str, Any]]:
 
     Results are cached in-process after the first call.
     Child collections are fetched in parallel for faster startup.
-    An empty catalog (no child links) returns an empty dict.
     """
     global _datasets
     if _datasets is not None:

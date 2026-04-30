@@ -88,8 +88,7 @@ def list() -> list[str]:  # type: ignore[valid-type]
     """List available dataset IDs, sorted alphabetically.
 
     On the first call (per process) this fetches the STAC catalog from
-    dynamical.org; subsequent calls reuse the in-process cache. Returns
-    an empty list if the catalog has no datasets.
+    dynamical.org; subsequent calls reuse the in-process cache.
 
     Returns:
         Sorted list of dataset IDs.
