@@ -92,7 +92,7 @@ def list() -> list[str]:  # type: ignore[valid-type]
     an empty list if the catalog has no datasets.
 
     Returns:
-        Sorted list of dataset IDs (hyphenated form).
+        Sorted list of dataset IDs.
 
     Raises:
         CatalogFetchError: Fetching the STAC catalog failed.
