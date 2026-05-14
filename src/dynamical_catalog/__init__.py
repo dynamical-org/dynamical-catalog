@@ -105,7 +105,7 @@ def open(dataset_id: str, **kwargs: Any) -> xr.Dataset:
     """Alias for :func:`open_dataset`.
 
     .. deprecated:: 1.0
-        Use :func:`open_dataset` instead. ``open`` will be removed in 1.0.
+        Use :func:`open_dataset` instead.
     """
     return open_dataset(dataset_id, **kwargs)
 
@@ -114,7 +114,7 @@ def list() -> list[str]:  # type: ignore[valid-type]
     """Alias for :func:`list_dataset_ids`.
 
     .. deprecated:: 1.0
-        Use :func:`list_dataset_ids` instead. ``list`` will be removed in 1.0.
+        Use :func:`list_dataset_ids` instead.
     """
     return list_dataset_ids()
 
