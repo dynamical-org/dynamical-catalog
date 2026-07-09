@@ -22,6 +22,7 @@ import icechunk
 import pytest
 import xarray as xr
 import zarr
+from gribberish.zarr import GribberishCodec
 
 import dynamical_catalog
 import dynamical_catalog._stac as stac
@@ -37,6 +38,8 @@ _GRIB_URL = (
 )
 _GRIB_OFFSET = 0
 _GRIB_LENGTH = 235395
+# Grid shape of the 0.5deg GEFS pgrb2a grid (-90..90 lat, 0..359.5 lon).
+_GRIB_GRID_SHAPE = (361, 720)
 _CONTAINER_PREFIX = "s3://noaa-gefs-pds/"
 _DATASET_ID = "gefs-virtual-test"
 _COLLECTION_URL = f"https://stac.dynamical.org/{_DATASET_ID}/collection.json"
@@ -72,6 +75,22 @@ def virtual_icechunk_repo(tmp_path_factory: pytest.TempPathFactory) -> str:
     )
     session.store.set_virtual_ref(
         "grib_bytes/c/0",
+        _GRIB_URL,
+        offset=_GRIB_OFFSET,
+        length=_GRIB_LENGTH,
+    )
+    pressure_level = root.create_group("pressure_level")
+    pressure_level.create_array(
+        name="geopotential_height",
+        shape=_GRIB_GRID_SHAPE,
+        chunks=_GRIB_GRID_SHAPE,
+        dtype="float32",
+        compressors=None,
+        serializer=GribberishCodec(var="HGT").to_dict(),
+        dimension_names=("latitude", "longitude"),
+    )
+    session.store.set_virtual_ref(
+        "pressure_level/geopotential_height/c/0/0",
         _GRIB_URL,
         offset=_GRIB_OFFSET,
         length=_GRIB_LENGTH,
@@ -155,6 +174,24 @@ class TestVirtualOpen:
             assert isinstance(ds, xr.Dataset)
             head = ds["grib_bytes"].values[:4]
             assert bytes(head.tolist()) == b"GRIB"
+
+    def test_opens_group_and_decodes_gribberish_chunk(
+        self, patched_s3_storage: None
+    ) -> None:
+        """Reproduces reformatters' vertical-level layout (e.g. HRRR's
+        pressure_level/model_level groups): a named group holding a variable
+        whose chunks are GRIB2 bytes decoded on read via GribberishCodec."""
+        with patch.object(
+            stac,
+            "_fetch_json",
+            side_effect=_mock_stac_fetch(with_virtual_containers=True),
+        ):
+            ds = dynamical_catalog.open(_DATASET_ID, group="pressure_level")
+            assert isinstance(ds, xr.Dataset)
+            heights = ds["geopotential_height"].values
+            assert heights.shape == _GRIB_GRID_SHAPE
+            # 10mb geopotential height is physically ~29,000-32,000 gpm.
+            assert 29_000 < heights.min() and heights.max() < 32_000
 
     def test_missing_virtual_chunk_containers_blocks_read(
         self, patched_s3_storage: None
