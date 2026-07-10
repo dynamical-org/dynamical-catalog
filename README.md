@@ -28,6 +28,9 @@ ds = dynamical_catalog.open("noaa-gfs-forecast")
 # Additional arguments are passed through to `xr.open_zarr`
 ds = dynamical_catalog.open("noaa-gfs-forecast", chunks=None)
 
+# Datasets with vertical profiles expose them as groups (e.g. pressure_level)
+ds = dynamical_catalog.open("noaa-hrrr-forecast-48-hour-spatial", group="pressure_level")
+
 # Get the underlying Zarr store if you want even more control
 store = dynamical_catalog.get_store("noaa-gfs-forecast")
 ds = xr.open_zarr(store)
@@ -35,3 +38,6 @@ ds = xr.open_zarr(store)
 # List all available datasets
 dynamical_catalog.list()
 ```
+
+Set `DYNAMICAL_STAC_CATALOG_URL` to point the library at a non-production
+catalog such as `https://stac-staging.dynamical.org/catalog.json`.

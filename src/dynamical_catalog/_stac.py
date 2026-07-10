@@ -5,6 +5,7 @@ from __future__ import annotations
 import concurrent.futures
 import http.client
 import json
+import os
 import time
 import urllib.error
 import urllib.request
@@ -17,6 +18,9 @@ from dynamical_catalog.exceptions import (
 )
 
 STAC_CATALOG_URL = "https://stac.dynamical.org/catalog.json"
+STAGING_STAC_CATALOG_URL = "https://stac-staging.dynamical.org/catalog.json"
+# Override the catalog URL to point at a non-production catalog (e.g. staging).
+CATALOG_URL_ENV_VAR = "DYNAMICAL_STAC_CATALOG_URL"
 
 _TIMEOUT_SECONDS = 10
 _MAX_ATTEMPTS = 3
@@ -33,6 +37,10 @@ def set_identifier(identifier: str | None) -> None:
     """
     global _identifier
     _identifier = identifier or None
+
+
+def _catalog_url() -> str:
+    return os.environ.get(CATALOG_URL_ENV_VAR) or STAC_CATALOG_URL
 
 
 def _user_agent() -> str:
@@ -202,11 +210,12 @@ def load_catalog() -> dict[str, dict[str, Any]]:
     if _datasets is not None:
         return _datasets
 
-    catalog = _fetch_json(STAC_CATALOG_URL)
+    catalog_url = _catalog_url()
+    catalog = _fetch_json(catalog_url)
     if "links" not in catalog:
         raise InvalidCatalogError("STAC catalog response is missing 'links'")
     child_links = [link for link in catalog["links"] if link["rel"] == "child"]
-    urls = [urljoin(STAC_CATALOG_URL, link["href"]) for link in child_links]
+    urls = [urljoin(catalog_url, link["href"]) for link in child_links]
 
     collections: list[dict[str, Any]] = [{} for _ in urls]
     failures: list[tuple[str, Exception]] = []
