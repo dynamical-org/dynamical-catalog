@@ -35,6 +35,11 @@ ds = dynamical_catalog.open("noaa-hrrr-forecast-48-hour-spatial", group="pressur
 store = dynamical_catalog.get_store("noaa-gfs-forecast")
 ds = xr.open_zarr(store)
 
+# Get the icechunk repository itself to access its commit history / snapshots
+repo = dynamical_catalog.get_repository("noaa-gfs-forecast")
+for snapshot in repo.ancestry(branch="main"):
+    print(snapshot.written_at, snapshot.message)
+
 # List all available datasets
 dynamical_catalog.list()
 ```
