@@ -5,7 +5,7 @@ import pytest
 import xarray as xr
 import zarr
 
-from dynamical_catalog._open import _get_store, _open_dataset
+from dynamical_catalog._open import _get_repository, _get_store, _open_dataset
 from dynamical_catalog.exceptions import (
     DatasetOpenError,
     DynamicalCatalogError,
@@ -106,6 +106,67 @@ class TestGetStoreMocked:
         )
 
 
+class TestGetRepository:
+    @patch("dynamical_catalog._open.icechunk")
+    def test_returns_opened_repository(self, mock_icechunk):
+        # get_repository hands back the Repository itself (history intact), not a
+        # tip store — that's the whole reason it exists alongside _get_store.
+        data = {
+            "id": "test",
+            "icechunk": {
+                "bucket": "dynamical-test",
+                "prefix": "test/v0.1.0.icechunk/",
+                "region": "us-west-2",
+            },
+        }
+
+        repo = _get_repository(data)
+
+        mock_icechunk.s3_storage.assert_called_once_with(
+            bucket="dynamical-test",
+            prefix="test/v0.1.0.icechunk/",
+            region="us-west-2",
+            anonymous=True,
+        )
+        mock_icechunk.Repository.open.assert_called_once_with(
+            mock_icechunk.s3_storage.return_value,
+            authorize_virtual_chunk_access=None,
+        )
+        assert repo is mock_icechunk.Repository.open.return_value
+        mock_icechunk.Repository.open.return_value.readonly_session.assert_not_called()
+
+    @patch("dynamical_catalog._open.icechunk")
+    def test_authorizes_virtual_chunk_containers(self, mock_icechunk):
+        data = {
+            "id": "test",
+            "icechunk": {"bucket": "b", "prefix": "p/", "region": "us-west-2"},
+            "virtual_chunk_containers": ["s3://noaa-hrrr-bdp-pds"],
+        }
+        anon_cred = mock_icechunk.s3_anonymous_credentials.return_value
+
+        _get_repository(data)
+
+        mock_icechunk.containers_credentials.assert_called_once_with(
+            {"s3://noaa-hrrr-bdp-pds": anon_cred}
+        )
+        mock_icechunk.Repository.open.assert_called_once_with(
+            mock_icechunk.s3_storage.return_value,
+            authorize_virtual_chunk_access=mock_icechunk.containers_credentials.return_value,
+        )
+
+    @patch("dynamical_catalog._open.icechunk")
+    def test_icechunk_error_is_wrapped(self, mock_icechunk):
+        mock_icechunk.IcechunkError = icechunk.IcechunkError
+        mock_icechunk.Repository.open.side_effect = icechunk.IcechunkError("boom")
+        data = {
+            "id": "test",
+            "icechunk": {"bucket": "b", "prefix": "p/", "region": "us-west-2"},
+        }
+        with pytest.raises(DatasetOpenError, match="Failed to open icechunk") as exc:
+            _get_repository(data)
+        assert exc.value.dataset_id == "test"
+
+
 class TestGetStoreReal:
     """Build a real icechunk repo on local disk and exercise _get_store end-to-end.
 
@@ -170,6 +231,23 @@ class TestGetStoreExceptionWrapping:
         mock_icechunk.IcechunkError = icechunk.IcechunkError
         mock_icechunk.Repository.open.side_effect = icechunk.IcechunkError(
             "bucket not found"
+        )
+        data = {
+            "id": "test",
+            "icechunk": {"bucket": "b", "prefix": "p/", "region": "us-west-2"},
+        }
+        with pytest.raises(DatasetOpenError, match="Failed to open icechunk") as exc:
+            _get_store(data)
+        assert exc.value.dataset_id == "test"
+
+    @patch("dynamical_catalog._open.icechunk")
+    def test_readonly_session_error_is_wrapped(self, mock_icechunk):
+        # An IcechunkError raised while opening the "main" session (not by
+        # Repository.open) is still surfaced as DatasetOpenError, matching the
+        # pre-refactor behavior where open + session + store shared one try block.
+        mock_icechunk.IcechunkError = icechunk.IcechunkError
+        mock_icechunk.Repository.open.return_value.readonly_session.side_effect = (
+            icechunk.IcechunkError("no main branch")
         )
         data = {
             "id": "test",
