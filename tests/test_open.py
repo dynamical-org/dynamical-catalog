@@ -241,6 +241,23 @@ class TestGetStoreExceptionWrapping:
         assert exc.value.dataset_id == "test"
 
     @patch("dynamical_catalog._open.icechunk")
+    def test_readonly_session_error_is_wrapped(self, mock_icechunk):
+        # An IcechunkError raised while opening the "main" session (not by
+        # Repository.open) is still surfaced as DatasetOpenError, matching the
+        # pre-refactor behavior where open + session + store shared one try block.
+        mock_icechunk.IcechunkError = icechunk.IcechunkError
+        mock_icechunk.Repository.open.return_value.readonly_session.side_effect = (
+            icechunk.IcechunkError("no main branch")
+        )
+        data = {
+            "id": "test",
+            "icechunk": {"bucket": "b", "prefix": "p/", "region": "us-west-2"},
+        }
+        with pytest.raises(DatasetOpenError, match="Failed to open icechunk") as exc:
+            _get_store(data)
+        assert exc.value.dataset_id == "test"
+
+    @patch("dynamical_catalog._open.icechunk")
     def test_wrapped_exception_chains_original(self, mock_icechunk):
         mock_icechunk.IcechunkError = icechunk.IcechunkError
         original = icechunk.IcechunkError("bucket not found")

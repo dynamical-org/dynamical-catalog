@@ -11,7 +11,13 @@ coverage there. These tests point the public API at staging via
 GRIB decode on read is covered deterministically by test_virtual_open.py;
 these tests open lazily, matching test_integration.py.
 
-Run with: pytest -m slow
+Marked ``staging`` (as well as ``slow``): they depend on whatever the live
+staging catalog happens to be serving, so they are excluded from the per-PR
+test job (``-m "not staging"``) and run in the scheduled Integration workflow
+instead. That keeps staging catalog drift from turning unrelated PRs red while
+still surfacing it daily.
+
+Run with: pytest -m staging
 """
 
 import icechunk
@@ -21,10 +27,10 @@ import xarray as xr
 import dynamical_catalog
 from dynamical_catalog._stac import CATALOG_URL_ENV_VAR, STAGING_STAC_CATALOG_URL
 
-pytestmark = pytest.mark.slow
+pytestmark = [pytest.mark.slow, pytest.mark.staging]
 
 # Multi-group virtual dataset published to staging; carries both vertical groups.
-_GROUPED_DATASET = "noaa-hrrr-forecast-48-hour-spatial"
+_GROUPED_DATASET = "noaa-hrrr-forecast-48-hour-virtual"
 _VERTICAL_GROUPS = ("pressure_level", "model_level")
 
 

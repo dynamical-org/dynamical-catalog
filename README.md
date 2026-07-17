@@ -29,7 +29,7 @@ ds = dynamical_catalog.open("noaa-gfs-forecast")
 ds = dynamical_catalog.open("noaa-gfs-forecast", chunks=None)
 
 # Datasets with vertical profiles expose them as groups (e.g. pressure_level)
-ds = dynamical_catalog.open("noaa-hrrr-forecast-48-hour-spatial", group="pressure_level")
+ds = dynamical_catalog.open("noaa-hrrr-forecast-48-hour-virtual", group="pressure_level")
 
 # Get the underlying Zarr store if you want even more control
 store = dynamical_catalog.get_store("noaa-gfs-forecast")

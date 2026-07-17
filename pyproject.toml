@@ -45,6 +45,7 @@ packages = ["src/dynamical_catalog"]
 addopts = "-m 'not slow'"
 markers = [
     "slow: marks tests as slow (hit real network, run with pytest -m slow)",
+    "staging: hits the live staging STAC catalog; excluded from per-PR CI and run in the scheduled Integration workflow (also marked slow)",
 ]
 
 [tool.ruff]
