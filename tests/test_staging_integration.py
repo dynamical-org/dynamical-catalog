@@ -21,7 +21,6 @@ Production coverage that does gate merge lives in test_integration.py.
 Run with: pytest -m staging
 """
 
-import icechunk
 import pytest
 import xarray as xr
 
@@ -65,17 +64,10 @@ class TestVerticalGroups:
         assert group in ds.dims, f"{group} group is missing its {group!r} dimension"
         assert len(ds.data_vars) > 0, f"{group} group has no data variables"
 
-    # This dataset's chunks are virtual refs into a public source bucket, so a
-    # read only resolves if the staging collection advertises the source via
-    # icechunk:virtual_chunk_containers. That emission is added by dynamical-stac
-    # PR #38; until staging is redeployed with it, the read raises. strict=True
-    # flips this to a failure once the read succeeds, prompting removal of the
-    # marker and confirming the fix reached staging.
-    @pytest.mark.xfail(
-        raises=icechunk.IcechunkError,
-        strict=True,
-        reason="staging STAC does not yet advertise icechunk:virtual_chunk_containers",
-    )
+    # This dataset's chunks are virtual refs into a public source bucket; the
+    # read resolves because the staging collection advertises the source via
+    # icechunk:virtual_chunk_containers (dynamical-stac PR #38) and open()
+    # authorizes those containers at open time.
     def test_read_vertical_group_chunk(self):
         ds = dynamical_catalog.open(_GROUPED_DATASET, group="pressure_level")
         da = ds["geopotential_height"]
