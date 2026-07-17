@@ -1,0 +1,23 @@
+name: Staging integration
+
+# Live staging-catalog integration tests (`-m staging`). Staging serves whatever
+# is mid-deploy, so these are expected to go red on catalog drift. This check is
+# intentionally NOT a required status check: it surfaces drift on every PR/push
+# without blocking merge. Production coverage that DOES gate merge runs in the
+# Test workflow (`-m "not staging"`, which still includes tests/test_integration.py).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  staging:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
+        with:
+          python-version: "3.13"
+      - run: pip install -e ".[dev]"
+      - run: pytest tests/ -v -m staging

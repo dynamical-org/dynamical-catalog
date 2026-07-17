@@ -12,10 +12,11 @@ GRIB decode on read is covered deterministically by test_virtual_open.py;
 these tests open lazily, matching test_integration.py.
 
 Marked ``staging`` (as well as ``slow``): they depend on whatever the live
-staging catalog happens to be serving, so they are excluded from the per-PR
-test job (``-m "not staging"``) and run in the scheduled Integration workflow
-instead. That keeps staging catalog drift from turning unrelated PRs red while
-still surfacing it daily.
+staging catalog happens to be serving. The merge-gating ``test`` job excludes
+them (``-m "not staging"``); they run instead in the dedicated ``Staging
+integration`` workflow (``-m staging``), which surfaces staging drift on every
+PR but is intentionally not a required check, so it never blocks merge.
+Production coverage that does gate merge lives in test_integration.py.
 
 Run with: pytest -m staging
 """
