@@ -243,8 +243,7 @@ class TestGetStoreExceptionWrapping:
     @patch("dynamical_catalog._open.icechunk")
     def test_readonly_session_error_is_wrapped(self, mock_icechunk):
         # An IcechunkError raised while opening the "main" session (not by
-        # Repository.open) is still surfaced as DatasetOpenError, matching the
-        # pre-refactor behavior where open + session + store shared one try block.
+        # Repository.open) is still surfaced as DatasetOpenError.
         mock_icechunk.IcechunkError = icechunk.IcechunkError
         mock_icechunk.Repository.open.return_value.readonly_session.side_effect = (
             icechunk.IcechunkError("no main branch")

@@ -66,8 +66,8 @@ class TestVerticalGroups:
 
     # This dataset's chunks are virtual refs into a public source bucket; the
     # read resolves because the staging collection advertises the source via
-    # icechunk:virtual_chunk_containers (dynamical-stac PR #38) and open()
-    # authorizes those containers at open time.
+    # icechunk:virtual_chunk_containers and open() authorizes those containers
+    # at open time.
     def test_read_vertical_group_chunk(self):
         ds = dynamical_catalog.open(_GROUPED_DATASET, group="pressure_level")
         da = ds["geopotential_height"]

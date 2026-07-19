@@ -47,7 +47,7 @@ class TestOpen:
 
     def test_open_unknown_is_value_error_for_compat(self, populated_catalog):
         # UnknownDatasetError multi-inherits from ValueError so callers that
-        # caught ValueError before the typed-exception migration keep working.
+        # catch ValueError keep working.
         with pytest.raises(ValueError, match="Unknown dataset"):
             dynamical_catalog.open("nonexistent")
 
