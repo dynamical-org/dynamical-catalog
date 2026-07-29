@@ -103,6 +103,19 @@ class TestFetchJson:
             stac._fetch_json("https://example.com")
         assert mock_urlopen.call_count == stac._MAX_ATTEMPTS
 
+    def test_http_409_is_retried(self, mocker):
+        mocker.patch.object(stac.time, "sleep")
+        mock_urlopen = mocker.patch.object(
+            stac.urllib.request,
+            "urlopen",
+            side_effect=urllib.error.HTTPError(
+                "https://example.com", 409, "Conflict", {}, None
+            ),
+        )
+        with pytest.raises(CatalogFetchError):
+            stac._fetch_json("https://example.com")
+        assert mock_urlopen.call_count == stac._MAX_ATTEMPTS
+
     def test_http_5xx_is_retried(self, mocker):
         mocker.patch.object(stac.time, "sleep")
         mock_urlopen = mocker.patch.object(
