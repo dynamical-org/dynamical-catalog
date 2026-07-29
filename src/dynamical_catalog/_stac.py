@@ -71,9 +71,11 @@ def _fetch_json(url: str) -> Any:
             with urllib.request.urlopen(req, timeout=_TIMEOUT_SECONDS) as resp:
                 body = resp.read()
         except urllib.error.HTTPError as e:
-            # 4xx (except 429 Too Many Requests) won't change between attempts;
-            # fail fast.
-            if 400 <= e.code < 500 and e.code != 429:
+            # 4xx won't change between attempts and fails fast, except:
+            # - 429 Too Many Requests, which is inherently transient
+            # - 409 Conflict, which the CDN/object store backing stac.dynamical.org
+            #   can return for a read racing an in-flight write
+            if 400 <= e.code < 500 and e.code not in (429, 409):
                 raise CatalogFetchError(
                     f"Failed to fetch dynamical.org STAC catalog from {url}: "
                     f"HTTP {e.code} {e.reason}",
