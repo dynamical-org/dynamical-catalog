@@ -5,6 +5,7 @@ from __future__ import annotations
 import concurrent.futures
 import http.client
 import json
+import os
 import time
 import urllib.error
 import urllib.request
@@ -17,6 +18,9 @@ from dynamical_catalog.exceptions import (
 )
 
 STAC_CATALOG_URL = "https://stac.dynamical.org/catalog.json"
+STAGING_STAC_CATALOG_URL = "https://stac-staging.dynamical.org/catalog.json"
+# Override the catalog URL to point at a non-production catalog (e.g. staging).
+CATALOG_URL_ENV_VAR = "DYNAMICAL_STAC_CATALOG_URL"
 
 _TIMEOUT_SECONDS = 10
 _MAX_ATTEMPTS = 3
@@ -33,6 +37,10 @@ def set_identifier(identifier: str | None) -> None:
     """
     global _identifier
     _identifier = identifier or None
+
+
+def _catalog_url() -> str:
+    return os.environ.get(CATALOG_URL_ENV_VAR) or STAC_CATALOG_URL
 
 
 def _user_agent() -> str:
@@ -63,9 +71,11 @@ def _fetch_json(url: str) -> Any:
             with urllib.request.urlopen(req, timeout=_TIMEOUT_SECONDS) as resp:
                 body = resp.read()
         except urllib.error.HTTPError as e:
-            # 4xx (except 429 Too Many Requests) won't change between attempts;
-            # fail fast.
-            if 400 <= e.code < 500 and e.code != 429:
+            # 4xx won't change between attempts and fails fast, except:
+            # - 429 Too Many Requests, which is inherently transient
+            # - 409 Conflict, which the CDN/object store backing stac.dynamical.org
+            #   can return for a read racing an in-flight write
+            if 400 <= e.code < 500 and e.code not in (429, 409):
                 raise CatalogFetchError(
                     f"Failed to fetch dynamical.org STAC catalog from {url}: "
                     f"HTTP {e.code} {e.reason}",
@@ -395,11 +405,12 @@ def load_catalog() -> dict[str, dict[str, Any]]:
     if _datasets is not None:
         return _datasets
 
-    catalog = _fetch_json(STAC_CATALOG_URL)
+    catalog_url = _catalog_url()
+    catalog = _fetch_json(catalog_url)
     if "links" not in catalog:
         raise InvalidCatalogError("STAC catalog response is missing 'links'")
     child_links = [link for link in catalog["links"] if link["rel"] == "child"]
-    urls = [urljoin(STAC_CATALOG_URL, link["href"]) for link in child_links]
+    urls = [urljoin(catalog_url, link["href"]) for link in child_links]
 
     collections: list[dict[str, Any]] = [{} for _ in urls]
     failures: list[tuple[str, Exception]] = []

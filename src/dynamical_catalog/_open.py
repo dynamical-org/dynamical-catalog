@@ -69,9 +69,12 @@ def _container_credentials(container: dict[str, str]) -> Any:
     raise ValueError(f"Unsupported virtual chunk container type {container_type!r}")
 
 
-def _get_store(dataset_data: dict[str, Any]) -> Store:
+def _get_repository(dataset_data: dict[str, Any]) -> icechunk.Repository:
     config = dataset_data["icechunk"]
     storage = _build_storage(config)
+    # A virtual dataset's chunks are byte-range references into public source
+    # buckets; icechunk raises unless each such container is authorized at open
+    # time (the container registration itself is already persisted on the repo).
     containers = dataset_data.get("virtual_chunk_containers") or []
     authorize = (
         icechunk.containers_credentials(
@@ -82,11 +85,21 @@ def _get_store(dataset_data: dict[str, Any]) -> Store:
     )
     dataset_id = dataset_data.get("id")
     try:
-        repo = icechunk.Repository.open(
+        return icechunk.Repository.open(
             storage, authorize_virtual_chunk_access=authorize
         )
-        session = repo.readonly_session("main")
-        return session.store
+    except icechunk.IcechunkError as e:
+        raise DatasetOpenError(
+            f"Failed to open icechunk repository for dataset {dataset_id!r}: {e}",
+            dataset_id=dataset_id,
+        ) from e
+
+
+def _get_store(dataset_data: dict[str, Any]) -> Store:
+    repo = _get_repository(dataset_data)
+    dataset_id = dataset_data.get("id")
+    try:
+        return repo.readonly_session("main").store
     except icechunk.IcechunkError as e:
         raise DatasetOpenError(
             f"Failed to open icechunk repository for dataset {dataset_id!r}: {e}",

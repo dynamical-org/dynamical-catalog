@@ -47,7 +47,7 @@ class TestOpen:
 
     def test_open_unknown_is_value_error_for_compat(self, populated_catalog):
         # UnknownDatasetError multi-inherits from ValueError so callers that
-        # caught ValueError before the typed-exception migration keep working.
+        # catch ValueError keep working.
         with pytest.raises(ValueError, match="Unknown dataset"):
             dynamical_catalog.open("nonexistent")
 
@@ -107,6 +107,35 @@ class TestGetStore:
 
         mock_load.assert_called_once()
         mock_get_store.assert_called_once_with(sample_datasets["noaa-gfs-forecast"])
+
+
+class TestGetRepository:
+    def test_get_repository_by_dataset_id(self, populated_catalog, mocker):
+        mock_get_repo = mocker.patch("dynamical_catalog._open._get_repository")
+        dynamical_catalog.get_repository("noaa-gfs-forecast")
+        mock_get_repo.assert_called_once_with(populated_catalog["noaa-gfs-forecast"])
+
+    def test_get_repository_underscore_id_resolves_with_deprecation_warning(
+        self, populated_catalog, mocker
+    ):
+        mock_get_repo = mocker.patch("dynamical_catalog._open._get_repository")
+        with pytest.warns(DeprecationWarning, match="Underscores in dataset ids"):
+            dynamical_catalog.get_repository("noaa_gfs_forecast")
+        mock_get_repo.assert_called_once_with(populated_catalog["noaa-gfs-forecast"])
+
+    def test_get_repository_triggers_catalog_fetch_on_cold_cache(
+        self, sample_datasets, mocker
+    ):
+        stac._datasets = None
+        mock_load = mocker.patch(
+            "dynamical_catalog.load_catalog", return_value=sample_datasets
+        )
+        mock_get_repo = mocker.patch("dynamical_catalog._open._get_repository")
+
+        dynamical_catalog.get_repository("noaa-gfs-forecast")
+
+        mock_load.assert_called_once()
+        mock_get_repo.assert_called_once_with(sample_datasets["noaa-gfs-forecast"])
 
 
 class TestList:
@@ -217,6 +246,7 @@ class TestPublicSurface:
             "UnknownDatasetError",
             "__version__",
             "clear_cache",
+            "get_repository",
             "get_store",
             "identify",
             "list",

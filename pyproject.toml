@@ -1,6 +1,6 @@
 [project]
 name = "dynamical-catalog"
-version = "0.7.0"
+version = "0.8.0"
 description = "Load dynamical.org weather datasets in one line"
 readme = "README.md"
 license = "MIT"
@@ -22,7 +22,7 @@ dependencies = [
     "xarray>=2025.1.2",
     "zarr~=3.2",
     "icechunk~=2.0",
-    "gribberish~=1.5.0",
+    "gribberish>=1.5,<1.7",
 ]
 
 [build-system]
@@ -45,6 +45,7 @@ packages = ["src/dynamical_catalog"]
 addopts = "-m 'not slow'"
 markers = [
     "slow: marks tests as slow (hit real network, run with pytest -m slow)",
+    "staging: hits the live staging STAC catalog; runs in the non-blocking Staging integration workflow, kept out of the merge-gating test job (also marked slow)",
 ]
 
 [tool.ruff]

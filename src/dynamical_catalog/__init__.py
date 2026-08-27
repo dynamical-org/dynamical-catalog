@@ -7,6 +7,7 @@ from importlib.metadata import version
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    import icechunk
     import xarray as xr
     from zarr.abc.store import Store
 
@@ -63,6 +64,35 @@ def get_store(dataset_id: str) -> Store:
     from dynamical_catalog._open import _get_store
 
     return _get_store(_resolve(dataset_id))
+
+
+def get_repository(dataset_id: str) -> icechunk.Repository:
+    """Open a dynamical.org dataset's icechunk repository read-only and anonymously.
+
+    Lower-level than :func:`get_store` and :func:`open`, which collapse the
+    repository to the ``main`` tip. Returning the repository gives the caller its
+    full history — ``ancestry()`` for commit metadata and per-snapshot
+    ``readonly_session()`` — as needed for e.g. monitoring dataset publication.
+    Virtual chunk containers are authorized so reads resolve their source chunks.
+
+    On the first call (per process) this fetches the STAC catalog from
+    dynamical.org; subsequent calls reuse the in-process cache.
+
+    Args:
+        dataset_id: Dataset identifier (e.g. ``"noaa-gfs-forecast"``).
+
+    Returns:
+        A read-only :class:`icechunk.Repository`.
+
+    Raises:
+        UnknownDatasetError: ``dataset_id`` is not in the catalog.
+        CatalogFetchError: Fetching the STAC catalog failed.
+        InvalidCatalogError: The catalog response was reachable but malformed.
+        DatasetOpenError: Opening the icechunk repository failed.
+    """
+    from dynamical_catalog._open import _get_repository
+
+    return _get_repository(_resolve(dataset_id))
 
 
 def open(dataset_id: str, **kwargs: Any) -> xr.Dataset:
@@ -138,6 +168,7 @@ __all__ = [
     "UnknownDatasetError",
     "__version__",
     "clear_cache",
+    "get_repository",
     "get_store",
     "identify",
     "list",
