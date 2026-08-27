@@ -12,10 +12,44 @@ if TYPE_CHECKING:
 
 
 def _build_storage(config: dict[str, Any]) -> icechunk.Storage:
-    """Build read-only, unauthenticated icechunk storage for a repository."""
+    """Build read-only, unauthenticated icechunk storage for a repository.
+
+    Covers every icechunk backend that can be read without credentials. The
+    parsed config's ``type`` is set by the asset href scheme; see
+    :func:`dynamical_catalog._stac._parse_icechunk_asset`.
+    """
     storage_type = config["type"]
     if storage_type == "s3":
         return icechunk.s3_storage(
+            bucket=config["bucket"],
+            prefix=config["prefix"],
+            region=config["region"],
+            anonymous=True,
+        )
+    if storage_type == "gcs":
+        return icechunk.gcs_storage(
+            bucket=config["bucket"],
+            prefix=config["prefix"],
+            anonymous=True,
+        )
+    if storage_type == "azure":
+        return icechunk.azure_storage(
+            account=config["account"],
+            container=config["container"],
+            prefix=config["prefix"],
+            anonymous=True,
+        )
+    if storage_type == "r2":
+        return icechunk.r2_storage(
+            bucket=config["bucket"],
+            prefix=config["prefix"],
+            account_id=config.get("account_id"),
+            endpoint_url=config.get("endpoint_url"),
+            region=config.get("region"),
+            anonymous=True,
+        )
+    if storage_type == "tigris":
+        return icechunk.tigris_storage(
             bucket=config["bucket"],
             prefix=config["prefix"],
             region=config["region"],
@@ -27,9 +61,18 @@ def _build_storage(config: dict[str, Any]) -> icechunk.Storage:
 
 
 def _container_credentials(container: dict[str, str]) -> Any:
+    """Build no-auth credentials for one virtual chunk container.
+
+    Tigris shares S3's anonymous credential: icechunk treats `tigris://` as
+    part of the S3 family of stores.
+    """
     container_type = container["type"]
-    if container_type == "s3":
+    if container_type in ("s3", "tigris"):
         return icechunk.s3_anonymous_credentials()
+    if container_type == "gcs":
+        return icechunk.gcs_credentials(anonymous=True)
+    if container_type == "azure":
+        return icechunk.azure_anonymous_credentials()
     if container_type == "http":
         return icechunk.Credentials.HttpAccess()
     raise ValueError(f"Unsupported virtual chunk container type {container_type!r}")

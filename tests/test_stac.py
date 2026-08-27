@@ -276,11 +276,21 @@ class TestParseCollection:
             stac._parse_collection(collection)
 
     def test_unsupported_href_scheme_raises(self):
+        # file:// is a real icechunk backend, but not one a public catalog can
+        # hand out; plain http:// is excluded too.
         bad = {
             **MOCK_COLLECTION,
-            "assets": {"icechunk": {"href": "gs://bucket/repo"}},
+            "assets": {"icechunk": {"href": "file:///srv/bucket/repo"}},
         }
-        with pytest.raises(InvalidCatalogError, match="scheme is not s3 or https"):
+        with pytest.raises(InvalidCatalogError, match="href scheme is not one of"):
+            stac._parse_collection(bad)
+
+    def test_plain_http_href_scheme_raises(self):
+        bad = {
+            **MOCK_COLLECTION,
+            "assets": {"icechunk": {"href": "http://example.org/repo.icechunk"}},
+        }
+        with pytest.raises(InvalidCatalogError, match="href scheme is not one of"):
             stac._parse_collection(bad)
 
     def test_https_href_yields_http_storage_config(self):
@@ -383,6 +393,144 @@ class TestParseCollection:
         }
         with pytest.raises(InvalidCatalogError, match="region_name"):
             stac._parse_collection(bad)
+
+
+class TestParseIcechunkAssetBackends:
+    """Every href scheme the catalog admits, one backend at a time."""
+
+    def _collection(self, asset):
+        return {**MOCK_COLLECTION, "assets": {"icechunk": asset}}
+
+    def _parse(self, asset):
+        return stac._parse_collection(self._collection(asset))["icechunk"]
+
+    @pytest.mark.parametrize("scheme", ["gs", "gcs"])
+    def test_gcs_href(self, scheme):
+        result = self._parse({"href": f"{scheme}://public-bucket/repo.icechunk/"})
+        assert result == {
+            "type": "gcs",
+            "bucket": "public-bucket",
+            "prefix": "repo.icechunk/",
+        }
+
+    def test_gcs_href_needs_no_region(self):
+        # region_name is an S3-family requirement; GCS addresses buckets globally.
+        assert self._parse({"href": "gs://public-bucket/repo.icechunk/"})["type"] == (
+            "gcs"
+        )
+
+    @pytest.mark.parametrize("scheme", ["az", "azure", "abfs"])
+    def test_azure_href(self, scheme):
+        result = self._parse(
+            {
+                "href": f"{scheme}://public-container/repo.icechunk/",
+                "xarray:storage_options": {"account_name": "dynamicalstorage"},
+            }
+        )
+        assert result == {
+            "type": "azure",
+            "account": "dynamicalstorage",
+            "container": "public-container",
+            "prefix": "repo.icechunk/",
+        }
+
+    def test_azure_href_without_account_raises(self):
+        # The href carries only the container, so icechunk cannot address the
+        # blob store without the account name from storage options.
+        with pytest.raises(InvalidCatalogError, match="account_name"):
+            self._parse({"href": "az://public-container/repo.icechunk/"})
+
+    def test_azure_href_without_container_raises(self):
+        with pytest.raises(InvalidCatalogError, match="missing a container"):
+            self._parse(
+                {
+                    "href": "az:///repo.icechunk/",
+                    "xarray:storage_options": {"account_name": "dynamicalstorage"},
+                }
+            )
+
+    def test_r2_href_with_account_id(self):
+        result = self._parse(
+            {
+                "href": "r2://public-bucket/repo.icechunk/",
+                "xarray:storage_options": {"account_id": "abc123"},
+            }
+        )
+        assert result == {
+            "type": "r2",
+            "bucket": "public-bucket",
+            "prefix": "repo.icechunk/",
+            "account_id": "abc123",
+            "endpoint_url": None,
+            "region": None,
+        }
+
+    def test_r2_href_with_endpoint_url(self):
+        result = self._parse(
+            {
+                "href": "r2://public-bucket/repo.icechunk/",
+                "xarray:storage_options": {
+                    "client_kwargs": {
+                        "endpoint_url": "https://abc123.r2.cloudflarestorage.com",
+                        "region_name": "auto",
+                    }
+                },
+            }
+        )
+        assert result["endpoint_url"] == "https://abc123.r2.cloudflarestorage.com"
+        assert result["account_id"] is None
+        assert result["region"] == "auto"
+
+    def test_r2_href_without_account_id_or_endpoint_raises(self):
+        with pytest.raises(InvalidCatalogError, match="account_id"):
+            self._parse({"href": "r2://public-bucket/repo.icechunk/"})
+
+    def test_tigris_href(self):
+        result = self._parse(
+            {
+                "href": "tigris://public-bucket/repo.icechunk/",
+                "xarray:storage_options": {"client_kwargs": {"region_name": "iad"}},
+            }
+        )
+        assert result == {
+            "type": "tigris",
+            "bucket": "public-bucket",
+            "prefix": "repo.icechunk/",
+            "region": "iad",
+        }
+
+    def test_tigris_href_without_region_raises(self):
+        # icechunk refuses a regionless Tigris store outright, so catch it at
+        # parse time rather than at open time.
+        with pytest.raises(InvalidCatalogError, match="region_name"):
+            self._parse({"href": "tigris://public-bucket/repo.icechunk/"})
+
+    @pytest.mark.parametrize(
+        "href",
+        [
+            "gs://bucket/",
+            "az://container/",
+            "r2://bucket/",
+            "tigris://bucket/",
+        ],
+    )
+    def test_empty_prefix_raises_for_every_bucket_scheme(self, href):
+        with pytest.raises(InvalidCatalogError, match="missing a prefix"):
+            self._parse(
+                {
+                    "href": href,
+                    "xarray:storage_options": {
+                        "account_name": "acct",
+                        "account_id": "abc123",
+                        "client_kwargs": {"region_name": "us-west-2"},
+                    },
+                }
+            )
+
+    def test_null_storage_options_is_treated_as_absent(self):
+        # A JSON null must not blow up the region lookup with an AttributeError.
+        with pytest.raises(InvalidCatalogError, match="region_name"):
+            self._parse({"href": "s3://bucket/prefix/", "xarray:storage_options": None})
 
 
 class TestParseVirtualChunkContainers:
@@ -493,13 +641,97 @@ class TestParseVirtualChunkContainers:
         collection = self._collection_with_containers(
             [
                 {
-                    "url_prefix": "gs://somebucket",
-                    "credentials": {"type": "gcs", "anonymous": True},
+                    "url_prefix": "file:///chunks/",
+                    "credentials": {"type": "file"},
                 }
             ]
         )
         with pytest.raises(
             InvalidCatalogError, match="credentials type must be one of"
+        ):
+            stac._parse_collection(collection)
+
+    @pytest.mark.parametrize(
+        ("container_type", "url_prefix"),
+        [
+            ("gcs", "gs://public-bucket/chunks/"),
+            ("gcs", "gcs://public-bucket/chunks/"),
+            ("azure", "az://public-container/chunks/"),
+            ("azure", "azure://public-container/chunks/"),
+            ("azure", "abfs://public-container/chunks/"),
+            ("tigris", "tigris://public-bucket/chunks/"),
+        ],
+    )
+    def test_parses_anonymous_object_store_containers(self, container_type, url_prefix):
+        collection = self._collection_with_containers(
+            [
+                {
+                    "url_prefix": url_prefix,
+                    "credentials": {"type": container_type, "anonymous": True},
+                }
+            ]
+        )
+        result = stac._parse_collection(collection)
+        assert result["virtual_chunk_containers"] == [
+            {"url_prefix": url_prefix, "type": container_type}
+        ]
+
+    @pytest.mark.parametrize(
+        ("container_type", "url_prefix"),
+        [
+            ("gcs", "s3://wrong-scheme/chunks/"),
+            ("azure", "gs://wrong-scheme/chunks/"),
+            ("tigris", "s3://wrong-scheme/chunks/"),
+        ],
+    )
+    def test_prefix_scheme_must_match_new_credential_types(
+        self, container_type, url_prefix
+    ):
+        collection = self._collection_with_containers(
+            [
+                {
+                    "url_prefix": url_prefix,
+                    "credentials": {"type": container_type, "anonymous": True},
+                }
+            ]
+        )
+        with pytest.raises(InvalidCatalogError, match="url_prefix must be a"):
+            stac._parse_collection(collection)
+
+    @pytest.mark.parametrize(
+        ("container_type", "url_prefix"),
+        [
+            ("gcs", "gs://public-bucket/chunks/"),
+            ("azure", "az://public-container/chunks/"),
+            ("tigris", "tigris://public-bucket/chunks/"),
+        ],
+    )
+    def test_signed_containers_require_explicit_anonymous(
+        self, container_type, url_prefix
+    ):
+        # Every backend that signs requests must opt into anonymous access;
+        # only public HTTPS, which has no signing, may leave it out.
+        collection = self._collection_with_containers(
+            [{"url_prefix": url_prefix, "credentials": {"type": container_type}}]
+        )
+        with pytest.raises(InvalidCatalogError, match="anonymous: true"):
+            stac._parse_collection(collection)
+
+    def test_gcs_container_with_bearer_token_raises(self):
+        collection = self._collection_with_containers(
+            [
+                {
+                    "url_prefix": "gs://public-bucket/chunks/",
+                    "credentials": {
+                        "type": "gcs",
+                        "anonymous": True,
+                        "bearer_token": "ya29...",
+                    },
+                }
+            ]
+        )
+        with pytest.raises(
+            InvalidCatalogError, match="must not carry credential material"
         ):
             stac._parse_collection(collection)
 

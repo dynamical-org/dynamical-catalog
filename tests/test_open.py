@@ -5,11 +5,34 @@ import pytest
 import xarray as xr
 import zarr
 
-from dynamical_catalog._open import _get_store, _open_dataset
+from dynamical_catalog._open import (
+    _build_storage,
+    _container_credentials,
+    _get_store,
+    _open_dataset,
+)
 from dynamical_catalog.exceptions import (
     DatasetOpenError,
     DynamicalCatalogError,
 )
+
+
+def _with_containers(containers):
+    """An S3 repo config carrying the given virtual chunk containers.
+
+    The repository half is incidental in container-credential tests; container
+    type is independent of repository storage type.
+    """
+    return {
+        "id": "test",
+        "icechunk": {
+            "type": "s3",
+            "bucket": "b",
+            "prefix": "p/",
+            "region": "us-west-2",
+        },
+        "virtual_chunk_containers": containers,
+    }
 
 
 class TestGetStoreMocked:
@@ -197,7 +220,9 @@ class TestGetStoreHttp:
 
     @patch("dynamical_catalog._open.icechunk")
     def test_unsupported_storage_type_raises(self, mock_icechunk):
-        data = {"id": "test", "icechunk": {"type": "gcs", "bucket": "b"}}
+        # local_filesystem_storage is a real icechunk backend, but not one a
+        # public catalog can hand out, so no config parses to it.
+        data = {"id": "test", "icechunk": {"type": "file", "path": "/tmp/repo"}}
         with pytest.raises(ValueError, match="Unsupported icechunk storage type"):
             _get_store(data)
 
@@ -211,12 +236,168 @@ class TestGetStoreHttp:
                 "prefix": "p/",
                 "region": "us-west-2",
             },
-            "virtual_chunk_containers": [{"url_prefix": "gs://b/", "type": "gcs"}],
+            "virtual_chunk_containers": [
+                {"url_prefix": "file:///chunks/", "type": "file"}
+            ],
         }
         with pytest.raises(
             ValueError, match="Unsupported virtual chunk container type"
         ):
             _get_store(data)
+
+
+class TestGetStoreObjectStores:
+    """The remaining icechunk backends that support anonymous reads."""
+
+    @patch("dynamical_catalog._open.icechunk")
+    def test_uses_gcs_storage(self, mock_icechunk):
+        data = {
+            "id": "test",
+            "icechunk": {
+                "type": "gcs",
+                "bucket": "dynamical-test",
+                "prefix": "test/v0.1.0.icechunk/",
+            },
+        }
+
+        store = _get_store(data)
+
+        mock_icechunk.gcs_storage.assert_called_once_with(
+            bucket="dynamical-test",
+            prefix="test/v0.1.0.icechunk/",
+            anonymous=True,
+        )
+        mock_icechunk.Repository.open.assert_called_once_with(
+            mock_icechunk.gcs_storage.return_value,
+            authorize_virtual_chunk_access=None,
+        )
+        mock_repo = mock_icechunk.Repository.open.return_value
+        assert store is mock_repo.readonly_session.return_value.store
+
+    @patch("dynamical_catalog._open.icechunk")
+    def test_uses_azure_storage(self, mock_icechunk):
+        data = {
+            "id": "test",
+            "icechunk": {
+                "type": "azure",
+                "account": "dynamicalstorage",
+                "container": "dynamical-test",
+                "prefix": "test/v0.1.0.icechunk/",
+            },
+        }
+
+        _get_store(data)
+
+        mock_icechunk.azure_storage.assert_called_once_with(
+            account="dynamicalstorage",
+            container="dynamical-test",
+            prefix="test/v0.1.0.icechunk/",
+            anonymous=True,
+        )
+        mock_icechunk.Repository.open.assert_called_once_with(
+            mock_icechunk.azure_storage.return_value,
+            authorize_virtual_chunk_access=None,
+        )
+
+    @patch("dynamical_catalog._open.icechunk")
+    def test_uses_r2_storage(self, mock_icechunk):
+        data = {
+            "id": "test",
+            "icechunk": {
+                "type": "r2",
+                "bucket": "dynamical-test",
+                "prefix": "test/v0.1.0.icechunk/",
+                "account_id": "abc123",
+                "endpoint_url": None,
+                "region": None,
+            },
+        }
+
+        _get_store(data)
+
+        mock_icechunk.r2_storage.assert_called_once_with(
+            bucket="dynamical-test",
+            prefix="test/v0.1.0.icechunk/",
+            account_id="abc123",
+            endpoint_url=None,
+            region=None,
+            anonymous=True,
+        )
+
+    @patch("dynamical_catalog._open.icechunk")
+    def test_r2_storage_passes_endpoint_url_when_given(self, mock_icechunk):
+        data = {
+            "id": "test",
+            "icechunk": {
+                "type": "r2",
+                "bucket": "dynamical-test",
+                "prefix": "test/v0.1.0.icechunk/",
+                "account_id": None,
+                "endpoint_url": "https://abc123.r2.cloudflarestorage.com",
+                "region": "auto",
+            },
+        }
+
+        _get_store(data)
+
+        mock_icechunk.r2_storage.assert_called_once_with(
+            bucket="dynamical-test",
+            prefix="test/v0.1.0.icechunk/",
+            account_id=None,
+            endpoint_url="https://abc123.r2.cloudflarestorage.com",
+            region="auto",
+            anonymous=True,
+        )
+
+    @patch("dynamical_catalog._open.icechunk")
+    def test_uses_tigris_storage(self, mock_icechunk):
+        data = {
+            "id": "test",
+            "icechunk": {
+                "type": "tigris",
+                "bucket": "dynamical-test",
+                "prefix": "test/v0.1.0.icechunk/",
+                "region": "iad",
+            },
+        }
+
+        _get_store(data)
+
+        mock_icechunk.tigris_storage.assert_called_once_with(
+            bucket="dynamical-test",
+            prefix="test/v0.1.0.icechunk/",
+            region="iad",
+            anonymous=True,
+        )
+
+    @patch("dynamical_catalog._open.icechunk")
+    def test_authorizes_gcs_container(self, mock_icechunk):
+        _get_store(_with_containers([{"url_prefix": "gs://public/", "type": "gcs"}]))
+
+        mock_icechunk.gcs_credentials.assert_called_once_with(anonymous=True)
+        mock_icechunk.containers_credentials.assert_called_once_with(
+            {"gs://public/": mock_icechunk.gcs_credentials.return_value}
+        )
+
+    @patch("dynamical_catalog._open.icechunk")
+    def test_authorizes_azure_container(self, mock_icechunk):
+        _get_store(_with_containers([{"url_prefix": "az://public/", "type": "azure"}]))
+
+        mock_icechunk.containers_credentials.assert_called_once_with(
+            {"az://public/": mock_icechunk.azure_anonymous_credentials.return_value}
+        )
+
+    @patch("dynamical_catalog._open.icechunk")
+    def test_tigris_container_reuses_s3_anonymous_credentials(self, mock_icechunk):
+        # icechunk treats tigris:// as part of the S3 family of stores, so the
+        # anonymous S3 credential is the right one.
+        _get_store(
+            _with_containers([{"url_prefix": "tigris://public/", "type": "tigris"}])
+        )
+
+        mock_icechunk.containers_credentials.assert_called_once_with(
+            {"tigris://public/": mock_icechunk.s3_anonymous_credentials.return_value}
+        )
 
 
 class TestGetStoreReal:
@@ -284,6 +465,86 @@ class TestGetStoreReal:
         ds = _open_dataset(data)
         assert isinstance(ds, xr.Dataset)
         assert "values" in ds.data_vars
+
+
+class TestBuildStorageReal:
+    """Hand every backend's parsed config to the real icechunk constructors.
+
+    The mocked tests above assert the call shape but would pass even if
+    icechunk rejected the arguments. Constructing a Storage touches no network,
+    yet it does validate: a regionless tigris_storage, for instance, raises
+    rather than deferring to open time.
+    """
+
+    @pytest.mark.parametrize(
+        "config",
+        [
+            pytest.param(
+                {"type": "s3", "bucket": "b", "prefix": "p/", "region": "us-west-2"},
+                id="s3",
+            ),
+            pytest.param({"type": "gcs", "bucket": "b", "prefix": "p/"}, id="gcs"),
+            pytest.param(
+                {
+                    "type": "azure",
+                    "account": "acct",
+                    "container": "c",
+                    "prefix": "p/",
+                },
+                id="azure",
+            ),
+            pytest.param(
+                {
+                    "type": "r2",
+                    "bucket": "b",
+                    "prefix": "p/",
+                    "account_id": "abc123",
+                    "endpoint_url": None,
+                    "region": None,
+                },
+                id="r2-account-id",
+            ),
+            pytest.param(
+                {
+                    "type": "r2",
+                    "bucket": "b",
+                    "prefix": "p/",
+                    "account_id": None,
+                    "endpoint_url": "https://abc123.r2.cloudflarestorage.com",
+                    "region": "auto",
+                },
+                id="r2-endpoint-url",
+            ),
+            pytest.param(
+                {"type": "tigris", "bucket": "b", "prefix": "p/", "region": "iad"},
+                id="tigris",
+            ),
+            pytest.param(
+                {"type": "http", "base_url": "https://example.org/repo.icechunk"},
+                id="http",
+            ),
+        ],
+    )
+    def test_builds_a_storage(self, config):
+        assert isinstance(_build_storage(config), icechunk.Storage)
+
+    @pytest.mark.parametrize(
+        "container",
+        [
+            {"url_prefix": "s3://b/", "type": "s3"},
+            {"url_prefix": "gs://b/", "type": "gcs"},
+            {"url_prefix": "az://c/", "type": "azure"},
+            {"url_prefix": "tigris://b/", "type": "tigris"},
+            {"url_prefix": "https://example.org/chunks/", "type": "http"},
+        ],
+    )
+    def test_container_credentials_are_accepted_by_icechunk(self, container):
+        # containers_credentials is what rejects a credential of the wrong
+        # family for a url_prefix's scheme.
+        authorized = icechunk.containers_credentials(
+            {container["url_prefix"]: _container_credentials(container)}
+        )
+        assert set(authorized) == {container["url_prefix"]}
 
 
 class TestGetStoreExceptionWrapping:

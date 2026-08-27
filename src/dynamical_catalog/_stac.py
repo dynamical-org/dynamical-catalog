@@ -98,33 +98,104 @@ def _fetch_json(url: str) -> Any:
     ) from last_error
 
 
+# URL scheme in an icechunk asset href -> the parsed storage type it selects.
+# Every backend here is one icechunk can read without credentials; the
+# credential-only backends are absent by design, since a public catalog must
+# not advertise secrets.
+_HREF_SCHEME_TO_STORAGE_TYPE = {
+    "s3": "s3",
+    "gs": "gcs",
+    "gcs": "gcs",
+    "az": "azure",
+    "azure": "azure",
+    "abfs": "azure",
+    "r2": "r2",
+    "tigris": "tigris",
+    "https": "http",
+}
+
+
 def _parse_icechunk_asset(collection_id: str, asset: dict[str, Any]) -> dict[str, Any]:
     """Parse the icechunk asset href into storage config.
 
-    Two href schemes are supported:
+    The href scheme selects the backend, per
+    :data:`_HREF_SCHEME_TO_STORAGE_TYPE`:
 
     ``s3://bucket/prefix``
-        An S3-hosted repository, read anonymously. Requires the region in
-        ``xarray:storage_options.client_kwargs.region_name``.
+        An S3 (or S3-compatible) bucket, read anonymously. Requires the region
+        in ``xarray:storage_options.client_kwargs.region_name``.
+    ``gs://bucket/prefix``, ``gcs://bucket/prefix``
+        A public Google Cloud Storage bucket.
+    ``az://container/prefix``, ``azure://…``, ``abfs://…``
+        A public Azure blob container. Requires the storage account in
+        ``xarray:storage_options.account_name``.
+    ``r2://bucket/prefix``
+        A Cloudflare R2 bucket addressed through its S3 API. Requires
+        ``xarray:storage_options.account_id`` or an explicit
+        ``client_kwargs.endpoint_url``. Note that R2's S3 endpoint rejects
+        unsigned requests, so a *public* R2 bucket is normally published on a
+        custom domain and read over ``https://`` instead.
+    ``tigris://bucket/prefix``
+        A public Tigris bucket. Requires the region, as for ``s3://``: icechunk
+        refuses a regionless Tigris store outright.
     ``https://host/prefix``
         A repository served over plain HTTPS, read anonymously. This covers
-        R2 buckets exposed on a custom domain, which are public over HTTPS
-        but reject the unsigned S3 API requests anonymous access would make.
+        buckets exposed on a custom domain, which are public over HTTPS but
+        reject the unsigned S3 API requests anonymous access would make.
     """
     href = asset["href"]
     parsed = urlparse(href)
-    if parsed.scheme == "https":
-        return _parse_http_href(collection_id, href, parsed)
-    if parsed.scheme == "s3":
-        return _parse_s3_href(collection_id, asset, href, parsed)
-    raise InvalidCatalogError(
-        f"STAC Collection {collection_id} icechunk asset href scheme is not "
-        f"s3 or https: {href!r}"
-    )
+    storage_type = _HREF_SCHEME_TO_STORAGE_TYPE.get(parsed.scheme)
+    if storage_type is None:
+        raise InvalidCatalogError(
+            f"STAC Collection {collection_id} icechunk asset href scheme is not "
+            f"one of {sorted(_HREF_SCHEME_TO_STORAGE_TYPE)}: {href!r}"
+        )
+    return _HREF_PARSERS[storage_type](collection_id, asset, href, parsed)
+
+
+def _storage_options(asset: dict[str, Any]) -> dict[str, Any]:
+    return asset.get("xarray:storage_options") or {}
+
+
+def _region(asset: dict[str, Any]) -> Any:
+    return (_storage_options(asset).get("client_kwargs") or {}).get("region_name")
+
+
+def _split_bucket_prefix(
+    collection_id: str,
+    href: str,
+    parsed: ParseResult,
+    *,
+    bucket_label: str = "bucket",
+) -> tuple[str, str]:
+    """Split a ``scheme://bucket/prefix`` href into its bucket and prefix."""
+    if not parsed.netloc:
+        raise InvalidCatalogError(
+            f"STAC Collection {collection_id} icechunk asset href is missing "
+            f"a {bucket_label}: {href!r}"
+        )
+    prefix = parsed.path.lstrip("/")
+    if not prefix:
+        raise InvalidCatalogError(
+            f"STAC Collection {collection_id} icechunk asset href is missing "
+            f"a prefix: {href!r}"
+        )
+    return parsed.netloc, prefix
+
+
+def _required_region(collection_id: str, asset: dict[str, Any]) -> str:
+    region = _region(asset)
+    if not region:
+        raise InvalidCatalogError(
+            f"STAC Collection {collection_id} icechunk asset is missing "
+            f"xarray:storage_options.client_kwargs.region_name"
+        )
+    return region
 
 
 def _parse_http_href(
-    collection_id: str, href: str, parsed: ParseResult
+    collection_id: str, asset: dict[str, Any], href: str, parsed: ParseResult
 ) -> dict[str, Any]:
     if not parsed.netloc:
         raise InvalidCatalogError(
@@ -145,39 +216,108 @@ def _parse_http_href(
 def _parse_s3_href(
     collection_id: str, asset: dict[str, Any], href: str, parsed: ParseResult
 ) -> dict[str, Any]:
-    if not parsed.netloc:
-        raise InvalidCatalogError(
-            f"STAC Collection {collection_id} icechunk asset href is missing "
-            f"a bucket: {href!r}"
-        )
-    if not parsed.path.lstrip("/"):
-        raise InvalidCatalogError(
-            f"STAC Collection {collection_id} icechunk asset href is missing "
-            f"a prefix: {href!r}"
-        )
-    storage_options = asset.get("xarray:storage_options", {})
-    client_kwargs = storage_options.get("client_kwargs", {})
-    region = client_kwargs.get("region_name")
-    if not region:
-        raise InvalidCatalogError(
-            f"STAC Collection {collection_id} icechunk asset is missing "
-            f"xarray:storage_options.client_kwargs.region_name"
-        )
+    bucket, prefix = _split_bucket_prefix(collection_id, href, parsed)
     return {
         "type": "s3",
-        "bucket": parsed.netloc,
-        "prefix": parsed.path.lstrip("/"),
-        "region": region,
+        "bucket": bucket,
+        "prefix": prefix,
+        "region": _required_region(collection_id, asset),
     }
 
 
-# Virtual chunk container credential type -> the URL scheme its prefix must
-# use. Only anonymous/public access types appear here by design: a public
-# catalog must not advertise static credentials.
-_CONTAINER_SCHEMES = {
-    "s3": "s3://",
-    "http": "https://",
+def _parse_gcs_href(
+    collection_id: str, asset: dict[str, Any], href: str, parsed: ParseResult
+) -> dict[str, Any]:
+    bucket, prefix = _split_bucket_prefix(collection_id, href, parsed)
+    return {"type": "gcs", "bucket": bucket, "prefix": prefix}
+
+
+def _parse_azure_href(
+    collection_id: str, asset: dict[str, Any], href: str, parsed: ParseResult
+) -> dict[str, Any]:
+    container, prefix = _split_bucket_prefix(
+        collection_id, href, parsed, bucket_label="container"
+    )
+    # icechunk addresses Azure by account + container, but the href only
+    # carries the container, so the account has to come from storage options.
+    account = _storage_options(asset).get("account_name")
+    if not account:
+        raise InvalidCatalogError(
+            f"STAC Collection {collection_id} icechunk asset is missing "
+            f"xarray:storage_options.account_name"
+        )
+    return {
+        "type": "azure",
+        "account": account,
+        "container": container,
+        "prefix": prefix,
+    }
+
+
+def _parse_r2_href(
+    collection_id: str, asset: dict[str, Any], href: str, parsed: ParseResult
+) -> dict[str, Any]:
+    bucket, prefix = _split_bucket_prefix(collection_id, href, parsed)
+    storage_options = _storage_options(asset)
+    account_id = storage_options.get("account_id")
+    endpoint_url = (storage_options.get("client_kwargs") or {}).get("endpoint_url")
+    if not account_id and not endpoint_url:
+        raise InvalidCatalogError(
+            f"STAC Collection {collection_id} icechunk asset is missing both "
+            f"xarray:storage_options.account_id and "
+            f"xarray:storage_options.client_kwargs.endpoint_url; R2 needs one "
+            f"of them to address the bucket"
+        )
+    return {
+        "type": "r2",
+        "bucket": bucket,
+        "prefix": prefix,
+        "account_id": account_id,
+        "endpoint_url": endpoint_url,
+        # Optional: icechunk defaults R2 to the 'auto' region.
+        "region": _region(asset),
+    }
+
+
+def _parse_tigris_href(
+    collection_id: str, asset: dict[str, Any], href: str, parsed: ParseResult
+) -> dict[str, Any]:
+    bucket, prefix = _split_bucket_prefix(collection_id, href, parsed)
+    return {
+        "type": "tigris",
+        "bucket": bucket,
+        "prefix": prefix,
+        # Not optional: icechunk rejects a Tigris store with no region unless
+        # it is opted into weak consistency.
+        "region": _required_region(collection_id, asset),
+    }
+
+
+_HREF_PARSERS = {
+    "s3": _parse_s3_href,
+    "gcs": _parse_gcs_href,
+    "azure": _parse_azure_href,
+    "r2": _parse_r2_href,
+    "tigris": _parse_tigris_href,
+    "http": _parse_http_href,
 }
+
+
+# Virtual chunk container credential type -> the URL scheme prefixes its
+# url_prefix may use. Schemes are icechunk's own; it enforces the same
+# scheme/store correspondence when a container is created. Only
+# anonymous/public access types appear here by design: a public catalog must
+# not advertise static credentials.
+_CONTAINER_SCHEMES = {
+    "s3": ("s3://",),
+    "gcs": ("gs://", "gcs://"),
+    "azure": ("az://", "azure://", "abfs://"),
+    "tigris": ("tigris://",),
+    "http": ("https://",),
+}
+# Container types whose backend signs requests, and so must opt into anonymous
+# access explicitly. Public HTTPS has no notion of signing to opt out of.
+_SIGNED_CONTAINER_TYPES = frozenset(_CONTAINER_SCHEMES) - {"http"}
 # The only credential keys a public catalog may carry. Anything else (an
 # access key, a bearer token) means the catalog is advertising a secret.
 _ALLOWED_CREDENTIAL_KEYS = {"type", "anonymous"}
@@ -189,9 +329,10 @@ def _parse_virtual_chunk_containers(
     """Parse the allowed virtual-chunk container URL prefixes.
 
     Returns a list of ``{"url_prefix": ..., "type": ...}`` dicts, where type
-    is a key of :data:`_CONTAINER_SCHEMES`. Only anonymous S3 and public
-    HTTPS containers are accepted — a public catalog must not advertise
-    static credentials.
+    is a key of :data:`_CONTAINER_SCHEMES`. Only anonymous object-store and
+    public HTTPS containers are accepted — a public catalog must not advertise
+    static credentials. Container type is independent of the repository's own
+    storage type.
     """
     containers = asset.get("icechunk:virtual_chunk_containers", [])
     if containers is None:
@@ -214,12 +355,12 @@ def _parse_virtual_chunk_containers(
                 f"{prefix!r} credentials type must be one of "
                 f"{sorted(_CONTAINER_SCHEMES)}: {container_type!r}"
             )
-        scheme = _CONTAINER_SCHEMES[container_type]
-        if not isinstance(prefix, str) or not prefix.startswith(scheme):
+        schemes = _CONTAINER_SCHEMES[container_type]
+        if not isinstance(prefix, str) or not prefix.startswith(schemes):
             raise InvalidCatalogError(
                 f"STAC Collection {collection_id} virtual chunk container "
-                f"url_prefix must be a {scheme} string for {container_type!r} "
-                f"credentials: {prefix!r}"
+                f"url_prefix must be a {' or '.join(schemes)} string for "
+                f"{container_type!r} credentials: {prefix!r}"
             )
         extra_keys = set(credentials) - _ALLOWED_CREDENTIAL_KEYS
         if extra_keys:
@@ -228,13 +369,12 @@ def _parse_virtual_chunk_containers(
                 f"{prefix!r} must not carry credential material; unexpected "
                 f"keys: {sorted(extra_keys)}"
             )
-        # S3 must opt in explicitly; public HTTPS has no notion of signing to
-        # opt out of, so `anonymous` is optional there but may not be false.
         anonymous = credentials.get("anonymous")
-        if container_type == "s3" and not anonymous:
+        if container_type in _SIGNED_CONTAINER_TYPES and not anonymous:
             raise InvalidCatalogError(
                 f"STAC Collection {collection_id} virtual chunk container "
-                f"{prefix!r} must use {{type: 's3', anonymous: true}} credentials"
+                f"{prefix!r} must use {{type: {container_type!r}, "
+                f"anonymous: true}} credentials"
             )
         if anonymous is False:
             raise InvalidCatalogError(
