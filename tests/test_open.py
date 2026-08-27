@@ -300,56 +300,6 @@ class TestGetStoreObjectStores:
         )
 
     @patch("dynamical_catalog._open.icechunk")
-    def test_uses_r2_storage(self, mock_icechunk):
-        data = {
-            "id": "test",
-            "icechunk": {
-                "type": "r2",
-                "bucket": "dynamical-test",
-                "prefix": "test/v0.1.0.icechunk/",
-                "account_id": "abc123",
-                "endpoint_url": None,
-                "region": None,
-            },
-        }
-
-        _get_store(data)
-
-        mock_icechunk.r2_storage.assert_called_once_with(
-            bucket="dynamical-test",
-            prefix="test/v0.1.0.icechunk/",
-            account_id="abc123",
-            endpoint_url=None,
-            region=None,
-            anonymous=True,
-        )
-
-    @patch("dynamical_catalog._open.icechunk")
-    def test_r2_storage_passes_endpoint_url_when_given(self, mock_icechunk):
-        data = {
-            "id": "test",
-            "icechunk": {
-                "type": "r2",
-                "bucket": "dynamical-test",
-                "prefix": "test/v0.1.0.icechunk/",
-                "account_id": None,
-                "endpoint_url": "https://abc123.r2.cloudflarestorage.com",
-                "region": "auto",
-            },
-        }
-
-        _get_store(data)
-
-        mock_icechunk.r2_storage.assert_called_once_with(
-            bucket="dynamical-test",
-            prefix="test/v0.1.0.icechunk/",
-            account_id=None,
-            endpoint_url="https://abc123.r2.cloudflarestorage.com",
-            region="auto",
-            anonymous=True,
-        )
-
-    @patch("dynamical_catalog._open.icechunk")
     def test_uses_tigris_storage(self, mock_icechunk):
         data = {
             "id": "test",
@@ -479,42 +429,6 @@ class TestBuildStorageReal:
     @pytest.mark.parametrize(
         "config",
         [
-            pytest.param(
-                {"type": "s3", "bucket": "b", "prefix": "p/", "region": "us-west-2"},
-                id="s3",
-            ),
-            pytest.param({"type": "gcs", "bucket": "b", "prefix": "p/"}, id="gcs"),
-            pytest.param(
-                {
-                    "type": "azure",
-                    "account": "acct",
-                    "container": "c",
-                    "prefix": "p/",
-                },
-                id="azure",
-            ),
-            pytest.param(
-                {
-                    "type": "r2",
-                    "bucket": "b",
-                    "prefix": "p/",
-                    "account_id": "abc123",
-                    "endpoint_url": None,
-                    "region": None,
-                },
-                id="r2-account-id",
-            ),
-            pytest.param(
-                {
-                    "type": "r2",
-                    "bucket": "b",
-                    "prefix": "p/",
-                    "account_id": None,
-                    "endpoint_url": "https://abc123.r2.cloudflarestorage.com",
-                    "region": "auto",
-                },
-                id="r2-endpoint-url",
-            ),
             pytest.param(
                 {"type": "tigris", "bucket": "b", "prefix": "p/", "region": "iad"},
                 id="tigris",

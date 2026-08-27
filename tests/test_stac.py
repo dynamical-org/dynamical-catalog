@@ -285,6 +285,22 @@ class TestParseCollection:
         with pytest.raises(InvalidCatalogError, match="href scheme is not one of"):
             stac._parse_collection(bad)
 
+    def test_r2_href_scheme_raises(self):
+        # icechunk's r2_storage accepts anonymous=True, but R2's S3 endpoint
+        # never serves unsigned requests, so an r2:// asset would parse and
+        # then 401 at read time. Public R2 buckets belong on the https:// path.
+        bad = {
+            **MOCK_COLLECTION,
+            "assets": {
+                "icechunk": {
+                    "href": "r2://public-bucket/repo.icechunk/",
+                    "xarray:storage_options": {"account_id": "abc123"},
+                }
+            },
+        }
+        with pytest.raises(InvalidCatalogError, match="href scheme is not one of"):
+            stac._parse_collection(bad)
+
     def test_plain_http_href_scheme_raises(self):
         bad = {
             **MOCK_COLLECTION,
@@ -449,42 +465,6 @@ class TestParseIcechunkAssetBackends:
                 }
             )
 
-    def test_r2_href_with_account_id(self):
-        result = self._parse(
-            {
-                "href": "r2://public-bucket/repo.icechunk/",
-                "xarray:storage_options": {"account_id": "abc123"},
-            }
-        )
-        assert result == {
-            "type": "r2",
-            "bucket": "public-bucket",
-            "prefix": "repo.icechunk/",
-            "account_id": "abc123",
-            "endpoint_url": None,
-            "region": None,
-        }
-
-    def test_r2_href_with_endpoint_url(self):
-        result = self._parse(
-            {
-                "href": "r2://public-bucket/repo.icechunk/",
-                "xarray:storage_options": {
-                    "client_kwargs": {
-                        "endpoint_url": "https://abc123.r2.cloudflarestorage.com",
-                        "region_name": "auto",
-                    }
-                },
-            }
-        )
-        assert result["endpoint_url"] == "https://abc123.r2.cloudflarestorage.com"
-        assert result["account_id"] is None
-        assert result["region"] == "auto"
-
-    def test_r2_href_without_account_id_or_endpoint_raises(self):
-        with pytest.raises(InvalidCatalogError, match="account_id"):
-            self._parse({"href": "r2://public-bucket/repo.icechunk/"})
-
     def test_tigris_href(self):
         result = self._parse(
             {
@@ -510,7 +490,6 @@ class TestParseIcechunkAssetBackends:
         [
             "gs://bucket/",
             "az://container/",
-            "r2://bucket/",
             "tigris://bucket/",
         ],
     )

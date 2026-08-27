@@ -109,7 +109,6 @@ _HREF_SCHEME_TO_STORAGE_TYPE = {
     "az": "azure",
     "azure": "azure",
     "abfs": "azure",
-    "r2": "r2",
     "tigris": "tigris",
     "https": "http",
 }
@@ -129,12 +128,6 @@ def _parse_icechunk_asset(collection_id: str, asset: dict[str, Any]) -> dict[str
     ``az://container/prefix``, ``azure://…``, ``abfs://…``
         A public Azure blob container. Requires the storage account in
         ``xarray:storage_options.account_name``.
-    ``r2://bucket/prefix``
-        A Cloudflare R2 bucket addressed through its S3 API. Requires
-        ``xarray:storage_options.account_id`` or an explicit
-        ``client_kwargs.endpoint_url``. Note that R2's S3 endpoint rejects
-        unsigned requests, so a *public* R2 bucket is normally published on a
-        custom domain and read over ``https://`` instead.
     ``tigris://bucket/prefix``
         A public Tigris bucket. Requires the region, as for ``s3://``: icechunk
         refuses a regionless Tigris store outright.
@@ -142,6 +135,12 @@ def _parse_icechunk_asset(collection_id: str, asset: dict[str, Any]) -> dict[str
         A repository served over plain HTTPS, read anonymously. This covers
         buckets exposed on a custom domain, which are public over HTTPS but
         reject the unsigned S3 API requests anonymous access would make.
+
+    There is deliberately no ``r2://`` scheme. icechunk's ``r2_storage`` takes
+    ``anonymous=True``, but R2's S3 endpoint never serves unsigned requests, so
+    such an asset would parse cleanly and then fail with 401/403 at read time.
+    Public R2 buckets are published on an ``r2.dev`` URL or a custom domain and
+    belong on the ``https://`` path above.
     """
     href = asset["href"]
     parsed = urlparse(href)
@@ -254,31 +253,6 @@ def _parse_azure_href(
     }
 
 
-def _parse_r2_href(
-    collection_id: str, asset: dict[str, Any], href: str, parsed: ParseResult
-) -> dict[str, Any]:
-    bucket, prefix = _split_bucket_prefix(collection_id, href, parsed)
-    storage_options = _storage_options(asset)
-    account_id = storage_options.get("account_id")
-    endpoint_url = (storage_options.get("client_kwargs") or {}).get("endpoint_url")
-    if not account_id and not endpoint_url:
-        raise InvalidCatalogError(
-            f"STAC Collection {collection_id} icechunk asset is missing both "
-            f"xarray:storage_options.account_id and "
-            f"xarray:storage_options.client_kwargs.endpoint_url; R2 needs one "
-            f"of them to address the bucket"
-        )
-    return {
-        "type": "r2",
-        "bucket": bucket,
-        "prefix": prefix,
-        "account_id": account_id,
-        "endpoint_url": endpoint_url,
-        # Optional: icechunk defaults R2 to the 'auto' region.
-        "region": _region(asset),
-    }
-
-
 def _parse_tigris_href(
     collection_id: str, asset: dict[str, Any], href: str, parsed: ParseResult
 ) -> dict[str, Any]:
@@ -297,7 +271,6 @@ _HREF_PARSERS = {
     "s3": _parse_s3_href,
     "gcs": _parse_gcs_href,
     "azure": _parse_azure_href,
-    "r2": _parse_r2_href,
     "tigris": _parse_tigris_href,
     "http": _parse_http_href,
 }

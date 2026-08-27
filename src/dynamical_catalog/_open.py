@@ -39,15 +39,6 @@ def _build_storage(config: dict[str, Any]) -> icechunk.Storage:
             prefix=config["prefix"],
             anonymous=True,
         )
-    if storage_type == "r2":
-        return icechunk.r2_storage(
-            bucket=config["bucket"],
-            prefix=config["prefix"],
-            account_id=config.get("account_id"),
-            endpoint_url=config.get("endpoint_url"),
-            region=config.get("region"),
-            anonymous=True,
-        )
     if storage_type == "tigris":
         return icechunk.tigris_storage(
             bucket=config["bucket"],
