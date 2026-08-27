@@ -11,20 +11,39 @@ if TYPE_CHECKING:
     from zarr.abc.store import Store
 
 
+def _build_storage(config: dict[str, Any]) -> icechunk.Storage:
+    """Build read-only, unauthenticated icechunk storage for a repository."""
+    storage_type = config["type"]
+    if storage_type == "s3":
+        return icechunk.s3_storage(
+            bucket=config["bucket"],
+            prefix=config["prefix"],
+            region=config["region"],
+            anonymous=True,
+        )
+    if storage_type == "http":
+        return icechunk.http_storage(base_url=config["base_url"])
+    raise ValueError(f"Unsupported icechunk storage type {storage_type!r}")
+
+
+def _container_credentials(container: dict[str, str]) -> Any:
+    container_type = container["type"]
+    if container_type == "s3":
+        return icechunk.s3_anonymous_credentials()
+    if container_type == "http":
+        return icechunk.Credentials.HttpAccess()
+    raise ValueError(f"Unsupported virtual chunk container type {container_type!r}")
+
+
 def _get_store(dataset_data: dict[str, Any]) -> Store:
     config = dataset_data["icechunk"]
-    storage = icechunk.s3_storage(
-        bucket=config["bucket"],
-        prefix=config["prefix"],
-        region=config["region"],
-        anonymous=True,
-    )
-    prefixes = dataset_data.get("virtual_chunk_containers") or []
+    storage = _build_storage(config)
+    containers = dataset_data.get("virtual_chunk_containers") or []
     authorize = (
         icechunk.containers_credentials(
-            {p: icechunk.s3_anonymous_credentials() for p in prefixes}
+            {c["url_prefix"]: _container_credentials(c) for c in containers}
         )
-        if prefixes
+        if containers
         else None
     )
     dataset_id = dataset_data.get("id")

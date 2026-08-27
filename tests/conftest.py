@@ -8,6 +8,7 @@ SAMPLE_DATASETS = {
         "name": "NOAA GFS forecast",
         "description": "Weather forecasts from GFS.",
         "icechunk": {
+            "type": "s3",
             "bucket": "dynamical-noaa-gfs",
             "prefix": "noaa-gfs-forecast/v0.2.7.icechunk/",
             "region": "us-west-2",
@@ -18,6 +19,7 @@ SAMPLE_DATASETS = {
         "name": "NOAA GFS analysis",
         "description": "Weather analysis from GFS.",
         "icechunk": {
+            "type": "s3",
             "bucket": "dynamical-noaa-gfs",
             "prefix": "noaa-gfs-analysis/v0.1.0.icechunk/",
             "region": "us-west-2",
@@ -28,6 +30,7 @@ SAMPLE_DATASETS = {
         "name": "NOAA GEFS forecast, 35 day",
         "description": "Ensemble forecasts from GEFS.",
         "icechunk": {
+            "type": "s3",
             "bucket": "dynamical-noaa-gefs",
             "prefix": "noaa-gefs-forecast-35-day/v0.2.0.icechunk/",
             "region": "us-west-2",

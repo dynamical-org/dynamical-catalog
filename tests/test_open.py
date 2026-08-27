@@ -18,6 +18,7 @@ class TestGetStoreMocked:
         data = {
             "id": "test",
             "icechunk": {
+                "type": "s3",
                 "bucket": "dynamical-test",
                 "prefix": "test/v0.1.0.icechunk/",
                 "region": "us-west-2",
@@ -44,13 +45,14 @@ class TestGetStoreMocked:
         data = {
             "id": "test",
             "icechunk": {
+                "type": "s3",
                 "bucket": "dynamical-test",
                 "prefix": "test/v0.1.0.icechunk/",
                 "region": "us-west-2",
             },
             "virtual_chunk_containers": [
-                "s3://noaa-gfs-bdp-pds",
-                "s3://some-other-bucket",
+                {"url_prefix": "s3://noaa-gfs-bdp-pds", "type": "s3"},
+                {"url_prefix": "s3://some-other-bucket", "type": "s3"},
             ],
         }
         anon_cred = mock_icechunk.s3_anonymous_credentials.return_value
@@ -74,7 +76,12 @@ class TestGetStoreMocked:
         # via the `or []` fallback — no authorize block, no containers_credentials call.
         data = {
             "id": "test",
-            "icechunk": {"bucket": "b", "prefix": "p/", "region": "us-west-2"},
+            "icechunk": {
+                "type": "s3",
+                "bucket": "b",
+                "prefix": "p/",
+                "region": "us-west-2",
+            },
             "virtual_chunk_containers": None,
         }
 
@@ -93,7 +100,12 @@ class TestGetStoreMocked:
         # Empty list is falsy under `if prefixes`, so authorize stays None.
         data = {
             "id": "test",
-            "icechunk": {"bucket": "b", "prefix": "p/", "region": "us-west-2"},
+            "icechunk": {
+                "type": "s3",
+                "bucket": "b",
+                "prefix": "p/",
+                "region": "us-west-2",
+            },
             "virtual_chunk_containers": [],
         }
 
@@ -104,6 +116,107 @@ class TestGetStoreMocked:
             mock_icechunk.s3_storage.return_value,
             authorize_virtual_chunk_access=None,
         )
+
+
+class TestGetStoreHttp:
+    """HTTPS-backed repositories, e.g. an R2 bucket on a custom domain."""
+
+    @patch("dynamical_catalog._open.icechunk")
+    def test_uses_http_storage(self, mock_icechunk):
+        data = {
+            "id": "test",
+            "icechunk": {
+                "type": "http",
+                "base_url": "https://data.example.org/test/v0.1.0.icechunk",
+            },
+        }
+
+        store = _get_store(data)
+
+        mock_icechunk.http_storage.assert_called_once_with(
+            base_url="https://data.example.org/test/v0.1.0.icechunk"
+        )
+        mock_icechunk.s3_storage.assert_not_called()
+        mock_icechunk.Repository.open.assert_called_once_with(
+            mock_icechunk.http_storage.return_value,
+            authorize_virtual_chunk_access=None,
+        )
+        mock_repo = mock_icechunk.Repository.open.return_value
+        assert store is mock_repo.readonly_session.return_value.store
+
+    @patch("dynamical_catalog._open.icechunk")
+    def test_authorizes_http_virtual_chunk_containers(self, mock_icechunk):
+        data = {
+            "id": "test",
+            "icechunk": {
+                "type": "http",
+                "base_url": "https://data.example.org/test/v0.1.0.icechunk",
+            },
+            "virtual_chunk_containers": [
+                {"url_prefix": "https://chunks.example.org/data/", "type": "http"},
+            ],
+        }
+        http_cred = mock_icechunk.Credentials.HttpAccess.return_value
+
+        _get_store(data)
+
+        mock_icechunk.containers_credentials.assert_called_once_with(
+            {"https://chunks.example.org/data/": http_cred}
+        )
+
+    @patch("dynamical_catalog._open.icechunk")
+    def test_mixes_s3_and_http_containers(self, mock_icechunk):
+        # An S3-hosted repo may reference HTTPS virtual chunks and vice versa;
+        # container type is independent of repository storage type.
+        data = {
+            "id": "test",
+            "icechunk": {
+                "type": "s3",
+                "bucket": "b",
+                "prefix": "p/",
+                "region": "us-west-2",
+            },
+            "virtual_chunk_containers": [
+                {"url_prefix": "s3://noaa-gfs-bdp-pds", "type": "s3"},
+                {"url_prefix": "https://chunks.example.org/data/", "type": "http"},
+            ],
+        }
+
+        _get_store(data)
+
+        mock_icechunk.containers_credentials.assert_called_once_with(
+            {
+                "s3://noaa-gfs-bdp-pds": (
+                    mock_icechunk.s3_anonymous_credentials.return_value
+                ),
+                "https://chunks.example.org/data/": (
+                    mock_icechunk.Credentials.HttpAccess.return_value
+                ),
+            }
+        )
+
+    @patch("dynamical_catalog._open.icechunk")
+    def test_unsupported_storage_type_raises(self, mock_icechunk):
+        data = {"id": "test", "icechunk": {"type": "gcs", "bucket": "b"}}
+        with pytest.raises(ValueError, match="Unsupported icechunk storage type"):
+            _get_store(data)
+
+    @patch("dynamical_catalog._open.icechunk")
+    def test_unsupported_container_type_raises(self, mock_icechunk):
+        data = {
+            "id": "test",
+            "icechunk": {
+                "type": "s3",
+                "bucket": "b",
+                "prefix": "p/",
+                "region": "us-west-2",
+            },
+            "virtual_chunk_containers": [{"url_prefix": "gs://b/", "type": "gcs"}],
+        }
+        with pytest.raises(
+            ValueError, match="Unsupported virtual chunk container type"
+        ):
+            _get_store(data)
 
 
 class TestGetStoreReal:
@@ -139,7 +252,12 @@ class TestGetStoreReal:
         )
         data = {
             "id": "test",
-            "icechunk": {"bucket": "b", "prefix": "p/", "region": "us-west-2"},
+            "icechunk": {
+                "type": "s3",
+                "bucket": "b",
+                "prefix": "p/",
+                "region": "us-west-2",
+            },
         }
 
         store = _get_store(data)
@@ -155,7 +273,12 @@ class TestGetStoreReal:
         )
         data = {
             "id": "test",
-            "icechunk": {"bucket": "b", "prefix": "p/", "region": "us-west-2"},
+            "icechunk": {
+                "type": "s3",
+                "bucket": "b",
+                "prefix": "p/",
+                "region": "us-west-2",
+            },
         }
 
         ds = _open_dataset(data)
@@ -173,7 +296,12 @@ class TestGetStoreExceptionWrapping:
         )
         data = {
             "id": "test",
-            "icechunk": {"bucket": "b", "prefix": "p/", "region": "us-west-2"},
+            "icechunk": {
+                "type": "s3",
+                "bucket": "b",
+                "prefix": "p/",
+                "region": "us-west-2",
+            },
         }
         with pytest.raises(DatasetOpenError, match="Failed to open icechunk") as exc:
             _get_store(data)
@@ -186,7 +314,12 @@ class TestGetStoreExceptionWrapping:
         mock_icechunk.Repository.open.side_effect = original
         data = {
             "id": "test",
-            "icechunk": {"bucket": "b", "prefix": "p/", "region": "us-west-2"},
+            "icechunk": {
+                "type": "s3",
+                "bucket": "b",
+                "prefix": "p/",
+                "region": "us-west-2",
+            },
         }
         with pytest.raises(DatasetOpenError) as excinfo:
             _get_store(data)
@@ -203,7 +336,12 @@ class TestOpenDataset:
         mock_get_store.return_value = mock_store
         data = {
             "id": "test",
-            "icechunk": {"bucket": "b", "prefix": "p/", "region": "us-west-2"},
+            "icechunk": {
+                "type": "s3",
+                "bucket": "b",
+                "prefix": "p/",
+                "region": "us-west-2",
+            },
         }
 
         result = _open_dataset(data)
@@ -217,7 +355,12 @@ class TestOpenDataset:
     def test_passes_kwargs(self, mock_get_store, mock_xr):
         data = {
             "id": "test",
-            "icechunk": {"bucket": "b", "prefix": "p/", "region": "us-west-2"},
+            "icechunk": {
+                "type": "s3",
+                "bucket": "b",
+                "prefix": "p/",
+                "region": "us-west-2",
+            },
         }
 
         _open_dataset(data, chunks={"time": 10})
@@ -231,7 +374,12 @@ class TestOpenDataset:
     def test_caller_can_override_consolidated(self, mock_get_store, mock_xr):
         data = {
             "id": "test",
-            "icechunk": {"bucket": "b", "prefix": "p/", "region": "us-west-2"},
+            "icechunk": {
+                "type": "s3",
+                "bucket": "b",
+                "prefix": "p/",
+                "region": "us-west-2",
+            },
         }
 
         _open_dataset(data, consolidated=True)

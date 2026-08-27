@@ -9,7 +9,7 @@ import time
 import urllib.error
 import urllib.request
 from typing import Any
-from urllib.parse import urljoin, urlparse
+from urllib.parse import ParseResult, urljoin, urlparse
 
 from dynamical_catalog.exceptions import (
     CatalogFetchError,
@@ -98,14 +98,53 @@ def _fetch_json(url: str) -> Any:
     ) from last_error
 
 
-def _parse_icechunk_asset(collection_id: str, asset: dict[str, Any]) -> dict[str, str]:
+def _parse_icechunk_asset(collection_id: str, asset: dict[str, Any]) -> dict[str, Any]:
+    """Parse the icechunk asset href into storage config.
+
+    Two href schemes are supported:
+
+    ``s3://bucket/prefix``
+        An S3-hosted repository, read anonymously. Requires the region in
+        ``xarray:storage_options.client_kwargs.region_name``.
+    ``https://host/prefix``
+        A repository served over plain HTTPS, read anonymously. This covers
+        R2 buckets exposed on a custom domain, which are public over HTTPS
+        but reject the unsigned S3 API requests anonymous access would make.
+    """
     href = asset["href"]
     parsed = urlparse(href)
-    if parsed.scheme != "s3":
+    if parsed.scheme == "https":
+        return _parse_http_href(collection_id, href, parsed)
+    if parsed.scheme == "s3":
+        return _parse_s3_href(collection_id, asset, href, parsed)
+    raise InvalidCatalogError(
+        f"STAC Collection {collection_id} icechunk asset href scheme is not "
+        f"s3 or https: {href!r}"
+    )
+
+
+def _parse_http_href(
+    collection_id: str, href: str, parsed: ParseResult
+) -> dict[str, Any]:
+    if not parsed.netloc:
         raise InvalidCatalogError(
-            f"STAC Collection {collection_id} icechunk asset href scheme is not "
-            f"s3: {href!r}"
+            f"STAC Collection {collection_id} icechunk asset href is missing "
+            f"a host: {href!r}"
         )
+    if not parsed.path.strip("/"):
+        raise InvalidCatalogError(
+            f"STAC Collection {collection_id} icechunk asset href is missing "
+            f"a prefix: {href!r}"
+        )
+    # icechunk resolves keys against base_url by simple concatenation, so a
+    # trailing slash yields doubled separators and a bogus "the repository
+    # doesn't exist" error rather than anything diagnostic.
+    return {"type": "http", "base_url": href.rstrip("/")}
+
+
+def _parse_s3_href(
+    collection_id: str, asset: dict[str, Any], href: str, parsed: ParseResult
+) -> dict[str, Any]:
     if not parsed.netloc:
         raise InvalidCatalogError(
             f"STAC Collection {collection_id} icechunk asset href is missing "
@@ -125,19 +164,34 @@ def _parse_icechunk_asset(collection_id: str, asset: dict[str, Any]) -> dict[str
             f"xarray:storage_options.client_kwargs.region_name"
         )
     return {
+        "type": "s3",
         "bucket": parsed.netloc,
         "prefix": parsed.path.lstrip("/"),
         "region": region,
     }
 
 
+# Virtual chunk container credential type -> the URL scheme its prefix must
+# use. Only anonymous/public access types appear here by design: a public
+# catalog must not advertise static credentials.
+_CONTAINER_SCHEMES = {
+    "s3": "s3://",
+    "http": "https://",
+}
+# The only credential keys a public catalog may carry. Anything else (an
+# access key, a bearer token) means the catalog is advertising a secret.
+_ALLOWED_CREDENTIAL_KEYS = {"type", "anonymous"}
+
+
 def _parse_virtual_chunk_containers(
     collection_id: str, asset: dict[str, Any]
-) -> list[str]:
+) -> list[dict[str, str]]:
     """Parse the allowed virtual-chunk container URL prefixes.
 
-    Only anonymous S3 access is supported — a public catalog must not
-    advertise static credentials.
+    Returns a list of ``{"url_prefix": ..., "type": ...}`` dicts, where type
+    is a key of :data:`_CONTAINER_SCHEMES`. Only anonymous S3 and public
+    HTTPS containers are accepted — a public catalog must not advertise
+    static credentials.
     """
     containers = asset.get("icechunk:virtual_chunk_containers", [])
     if containers is None:
@@ -147,22 +201,48 @@ def _parse_virtual_chunk_containers(
             f"STAC Collection {collection_id} icechunk:virtual_chunk_containers "
             f"must be a list, got {type(containers).__name__}: {containers!r}"
         )
-    prefixes: list[str] = []
+    parsed: list[dict[str, str]] = []
     for entry in containers:
         prefix = entry.get("url_prefix")
-        if not isinstance(prefix, str) or not prefix.startswith("s3://"):
+        credentials = entry.get("credentials") or {}
+        container_type = credentials.get("type")
+        if not isinstance(container_type, str) or container_type not in (
+            _CONTAINER_SCHEMES
+        ):
             raise InvalidCatalogError(
                 f"STAC Collection {collection_id} virtual chunk container "
-                f"url_prefix must be an s3:// string: {prefix!r}"
+                f"{prefix!r} credentials type must be one of "
+                f"{sorted(_CONTAINER_SCHEMES)}: {container_type!r}"
             )
-        credentials = entry.get("credentials") or {}
-        if credentials.get("type") != "s3" or not credentials.get("anonymous"):
+        scheme = _CONTAINER_SCHEMES[container_type]
+        if not isinstance(prefix, str) or not prefix.startswith(scheme):
+            raise InvalidCatalogError(
+                f"STAC Collection {collection_id} virtual chunk container "
+                f"url_prefix must be a {scheme} string for {container_type!r} "
+                f"credentials: {prefix!r}"
+            )
+        extra_keys = set(credentials) - _ALLOWED_CREDENTIAL_KEYS
+        if extra_keys:
+            raise InvalidCatalogError(
+                f"STAC Collection {collection_id} virtual chunk container "
+                f"{prefix!r} must not carry credential material; unexpected "
+                f"keys: {sorted(extra_keys)}"
+            )
+        # S3 must opt in explicitly; public HTTPS has no notion of signing to
+        # opt out of, so `anonymous` is optional there but may not be false.
+        anonymous = credentials.get("anonymous")
+        if container_type == "s3" and not anonymous:
             raise InvalidCatalogError(
                 f"STAC Collection {collection_id} virtual chunk container "
                 f"{prefix!r} must use {{type: 's3', anonymous: true}} credentials"
             )
-        prefixes.append(prefix)
-    return prefixes
+        if anonymous is False:
+            raise InvalidCatalogError(
+                f"STAC Collection {collection_id} virtual chunk container "
+                f"{prefix!r} must be anonymous"
+            )
+        parsed.append({"url_prefix": prefix, "type": container_type})
+    return parsed
 
 
 def _parse_collection(collection: dict[str, Any]) -> dict[str, Any]:
