@@ -19,11 +19,7 @@ from dynamical_catalog.exceptions import (
 
 
 def _with_containers(containers):
-    """An S3 repo config carrying the given virtual chunk containers.
-
-    The repository half is incidental in container-credential tests; container
-    type is independent of repository storage type.
-    """
+    """An S3 repo config carrying the given virtual chunk containers."""
     return {
         "id": "test",
         "icechunk": {
@@ -190,8 +186,6 @@ class TestGetStoreHttp:
 
     @patch("dynamical_catalog._open.icechunk")
     def test_mixes_s3_and_http_containers(self, mock_icechunk):
-        # An S3-hosted repo may reference HTTPS virtual chunks and vice versa;
-        # container type is independent of repository storage type.
         data = {
             "id": "test",
             "icechunk": {
@@ -221,8 +215,6 @@ class TestGetStoreHttp:
 
     @patch("dynamical_catalog._open.icechunk")
     def test_unsupported_storage_type_raises(self, mock_icechunk):
-        # local_filesystem_storage is a real icechunk backend, but not one a
-        # public catalog can hand out, so no config parses to it.
         data = {"id": "test", "icechunk": {"type": "file", "path": "/tmp/repo"}}
         with pytest.raises(ValueError, match="Unsupported icechunk storage type"):
             _get_store(data)
@@ -340,8 +332,6 @@ class TestGetStoreObjectStores:
 
     @patch("dynamical_catalog._open.icechunk")
     def test_tigris_container_reuses_s3_anonymous_credentials(self, mock_icechunk):
-        # icechunk treats tigris:// as part of the S3 family of stores, so the
-        # anonymous S3 credential is the right one.
         _get_store(
             _with_containers([{"url_prefix": "tigris://public/", "type": "tigris"}])
         )
@@ -493,13 +483,7 @@ class TestGetStoreReal:
 
 
 class TestBuildStorageReal:
-    """Hand every backend's parsed config to the real icechunk constructors.
-
-    The mocked tests above assert the call shape but would pass even if
-    icechunk rejected the arguments. Constructing a Storage touches no network,
-    yet it does validate: a regionless tigris_storage, for instance, raises
-    rather than deferring to open time.
-    """
+    """Hand every backend's parsed config to the real icechunk constructors."""
 
     @pytest.mark.parametrize(
         "config",
@@ -528,8 +512,6 @@ class TestBuildStorageReal:
         ],
     )
     def test_container_credentials_are_accepted_by_icechunk(self, container):
-        # containers_credentials is what rejects a credential of the wrong
-        # family for a url_prefix's scheme.
         authorized = icechunk.containers_credentials(
             {container["url_prefix"]: _container_credentials(container)}
         )

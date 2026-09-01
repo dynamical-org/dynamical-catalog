@@ -12,12 +12,7 @@ if TYPE_CHECKING:
 
 
 def _build_storage(config: dict[str, Any]) -> icechunk.Storage:
-    """Build read-only, unauthenticated icechunk storage for a repository.
-
-    Covers every icechunk backend that can be read without credentials. The
-    parsed config's ``type`` is set by the asset href scheme; see
-    :func:`dynamical_catalog._stac._parse_icechunk_asset`.
-    """
+    """Build read-only, unauthenticated icechunk storage for a repository."""
     storage_type = config["type"]
     if storage_type == "s3":
         return icechunk.s3_storage(
@@ -52,13 +47,8 @@ def _build_storage(config: dict[str, Any]) -> icechunk.Storage:
 
 
 def _container_credentials(container: dict[str, str]) -> Any:
-    """Build no-auth credentials for one virtual chunk container.
-
-    Tigris shares S3's anonymous credential: icechunk treats `tigris://` as
-    part of the S3 family of stores.
-    """
     container_type = container["type"]
-    if container_type in ("s3", "tigris"):
+    if container_type in ("s3", "tigris"):  # icechunk treats tigris as S3-family
         return icechunk.s3_anonymous_credentials()
     if container_type == "gcs":
         return icechunk.gcs_credentials(anonymous=True)

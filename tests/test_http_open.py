@@ -1,15 +1,7 @@
-"""Serve a real icechunk repo over local HTTP and open it through _open.
+"""Serve a real icechunk repo over loopback HTTP and open it through _open.
 
-Covers the HTTPS-backed code path — ``icechunk.http_storage`` for the
-repository and ``Credentials.HttpAccess`` for virtual chunk containers — the
-way a bucket published on a custom domain is read. Nothing here touches the
-network: a threaded HTTP server on loopback stands in for the bucket, so the
-test also serves as a check that the path works without any object-store
-credentials at all.
-
-The catalog only admits ``https://`` hrefs (see test_stac.py); loopback is
-plain HTTP, so these tests drive ``_get_store``/``_open_dataset`` directly
-with the config ``_parse_collection`` produces.
+The catalog only admits ``https://`` hrefs, and loopback is plain HTTP, so
+these tests drive ``_get_store``/``_open_dataset`` directly.
 """
 
 from __future__ import annotations
@@ -43,14 +35,11 @@ class _Served(NamedTuple):
 class _RangeHandler(SimpleHTTPRequestHandler):
     """A static file handler that honours single-range GETs.
 
-    icechunk fetches manifests with a Range header, which
-    SimpleHTTPRequestHandler answers with the whole body — so the stock
-    handler fails as "Range request not supported". Object stores serving
-    a real repository support ranges, so the stand-in has to as well.
+    icechunk fetches manifests by range; SimpleHTTPRequestHandler ignores Range.
     """
 
     def log_message(self, *args: Any) -> None:
-        """Keep pytest output clean; the default handler logs every request."""
+        pass
 
     def do_GET(self) -> None:
         self._respond(include_body=True)
@@ -90,7 +79,6 @@ class _RangeHandler(SimpleHTTPRequestHandler):
 
 
 def _resolve_range(header: str, size: int) -> tuple[int, int] | None:
-    """Resolve a single `bytes=` range against a body size, or None if unsatisfiable."""
     match = re.fullmatch(r"bytes=(\d*)-(\d*)", header.strip())
     if match is None:
         return None
@@ -110,9 +98,8 @@ def _resolve_range(header: str, size: int) -> tuple[int, int] | None:
 def served_repo(tmp_path: Path) -> Iterator[_Served]:
     """Serve an icechunk repo, and the bytes its virtual chunk points at, over HTTP.
 
-    The port is only known once the server is bound, and the virtual chunk
-    container prefix has to be baked into the repo at creation time, so the
-    server starts first and the repo is built against its address.
+    The server starts first: the container prefix baked into the repo needs
+    the bound port.
     """
     doc_root = tmp_path / "www"
     (doc_root / "chunks").mkdir(parents=True)
@@ -137,7 +124,6 @@ def served_repo(tmp_path: Path) -> Iterator[_Served]:
 
 
 def _build_repo(path: Path, container_prefix: str) -> None:
-    """Create a repo on disk holding one virtual chunk served over HTTP."""
     config = icechunk.RepositoryConfig.default()
     config.set_virtual_chunk_container(
         icechunk.VirtualChunkContainer(
@@ -194,7 +180,6 @@ class TestHttpBackedRepository:
 
     def test_unauthorized_container_blocks_read(self, served_repo: _Served) -> None:
         ds = _open_dataset(_dataset_config(served_repo, with_container=False))
-        # Lazy reads are out of scope for the DatasetOpenError wrap, so the
-        # underlying icechunk error still surfaces here.
+        # Lazy reads fall outside the DatasetOpenError wrap.
         with pytest.raises(icechunk.IcechunkError, match="virtual chunk"):
             _ = ds["values"].values

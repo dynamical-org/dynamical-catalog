@@ -289,8 +289,6 @@ class TestParseCollection:
             stac._parse_collection(collection)
 
     def test_unsupported_href_scheme_raises(self):
-        # file:// is a real icechunk backend, but not one a public catalog can
-        # hand out; plain http:// is excluded too.
         bad = {
             **MOCK_COLLECTION,
             "assets": {"icechunk": {"href": "file:///srv/bucket/repo"}},
@@ -299,9 +297,6 @@ class TestParseCollection:
             stac._parse_collection(bad)
 
     def test_r2_href_scheme_raises(self):
-        # icechunk's r2_storage accepts anonymous=True, but R2's S3 endpoint
-        # never serves unsigned requests, so an r2:// asset would parse and
-        # then 401 at read time. Public R2 buckets belong on the https:// path.
         bad = {
             **MOCK_COLLECTION,
             "assets": {
@@ -338,8 +333,7 @@ class TestParseCollection:
         }
 
     def test_https_href_trailing_slash_is_stripped(self):
-        # icechunk concatenates keys onto base_url, so a trailing slash
-        # silently yields "the repository doesn't exist".
+        # icechunk concatenates keys onto base_url; a trailing slash breaks it.
         collection = {
             **MOCK_COLLECTION,
             "assets": {"icechunk": {"href": "https://example.org/repo.icechunk/"}},
@@ -348,7 +342,6 @@ class TestParseCollection:
         assert result["icechunk"]["base_url"] == "https://example.org/repo.icechunk"
 
     def test_https_href_needs_no_region(self):
-        # region_name is an S3-only requirement; HTTPS repos have no region.
         collection = {
             **MOCK_COLLECTION,
             "assets": {"icechunk": {"href": "https://example.org/repo.icechunk"}},
@@ -443,7 +436,6 @@ class TestParseIcechunkAssetBackends:
         }
 
     def test_gcs_href_needs_no_region(self):
-        # region_name is an S3-family requirement; GCS addresses buckets globally.
         assert self._parse({"href": "gs://public-bucket/repo.icechunk/"})["type"] == (
             "gcs"
         )
@@ -464,8 +456,6 @@ class TestParseIcechunkAssetBackends:
         }
 
     def test_azure_href_without_account_raises(self):
-        # The href carries only the container, so icechunk cannot address the
-        # blob store without the account name from storage options.
         with pytest.raises(InvalidCatalogError, match="account_name"):
             self._parse({"href": "az://public-container/repo.icechunk/"})
 
@@ -493,8 +483,6 @@ class TestParseIcechunkAssetBackends:
         }
 
     def test_tigris_href_without_region_raises(self):
-        # icechunk refuses a regionless Tigris store outright, so catch it at
-        # parse time rather than at open time.
         with pytest.raises(InvalidCatalogError, match="region_name"):
             self._parse({"href": "tigris://public-bucket/repo.icechunk/"})
 
@@ -520,7 +508,6 @@ class TestParseIcechunkAssetBackends:
             )
 
     def test_null_storage_options_is_treated_as_absent(self):
-        # A JSON null must not blow up the region lookup with an AttributeError.
         with pytest.raises(InvalidCatalogError, match="region_name"):
             self._parse({"href": "s3://bucket/prefix/", "xarray:storage_options": None})
 
@@ -701,8 +688,6 @@ class TestParseVirtualChunkContainers:
     def test_signed_containers_require_explicit_anonymous(
         self, container_type, url_prefix
     ):
-        # Every backend that signs requests must opt into anonymous access;
-        # only public HTTPS, which has no signing, may leave it out.
         collection = self._collection_with_containers(
             [{"url_prefix": url_prefix, "credentials": {"type": container_type}}]
         )

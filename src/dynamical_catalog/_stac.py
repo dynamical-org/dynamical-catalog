@@ -108,10 +108,7 @@ def _fetch_json(url: str) -> Any:
     ) from last_error
 
 
-# URL scheme in an icechunk asset href -> the parsed storage type it selects.
-# Every backend here is one icechunk can read without credentials; the
-# credential-only backends are absent by design, since a public catalog must
-# not advertise secrets.
+# Asset href scheme -> storage type. Only backends icechunk can read anonymously.
 _HREF_SCHEME_TO_STORAGE_TYPE = {
     "s3": "s3",
     "gs": "gcs",
@@ -127,30 +124,8 @@ _HREF_SCHEME_TO_STORAGE_TYPE = {
 def _parse_icechunk_asset(collection_id: str, asset: dict[str, Any]) -> dict[str, Any]:
     """Parse the icechunk asset href into storage config.
 
-    The href scheme selects the backend, per
-    :data:`_HREF_SCHEME_TO_STORAGE_TYPE`:
-
-    ``s3://bucket/prefix``
-        An S3 (or S3-compatible) bucket, read anonymously. Requires the region
-        in ``xarray:storage_options.client_kwargs.region_name``.
-    ``gs://bucket/prefix``, ``gcs://bucket/prefix``
-        A public Google Cloud Storage bucket.
-    ``az://container/prefix``, ``azure://…``, ``abfs://…``
-        A public Azure blob container. Requires the storage account in
-        ``xarray:storage_options.account_name``.
-    ``tigris://bucket/prefix``
-        A public Tigris bucket. Requires the region, as for ``s3://``: icechunk
-        refuses a regionless Tigris store outright.
-    ``https://host/prefix``
-        A repository served over plain HTTPS, read anonymously. This covers
-        buckets exposed on a custom domain, which are public over HTTPS but
-        reject the unsigned S3 API requests anonymous access would make.
-
-    There is deliberately no ``r2://`` scheme. icechunk's ``r2_storage`` takes
-    ``anonymous=True``, but R2's S3 endpoint never serves unsigned requests, so
-    such an asset would parse cleanly and then fail with 401/403 at read time.
-    Public R2 buckets are published on an ``r2.dev`` URL or a custom domain and
-    belong on the ``https://`` path above.
+    There is no ``r2://`` scheme: R2's S3 endpoint rejects unsigned requests,
+    so public R2 buckets are read over ``https://`` instead.
     """
     href = asset["href"]
     parsed = urlparse(href)
@@ -216,9 +191,8 @@ def _parse_http_href(
             f"STAC Collection {collection_id} icechunk asset href is missing "
             f"a prefix: {href!r}"
         )
-    # icechunk resolves keys against base_url by simple concatenation, so a
-    # trailing slash yields doubled separators and a bogus "the repository
-    # doesn't exist" error rather than anything diagnostic.
+    # icechunk concatenates keys onto base_url; a trailing slash doubles the
+    # separator and surfaces as a misleading "repository doesn't exist".
     return {"type": "http", "base_url": href.rstrip("/")}
 
 
@@ -247,8 +221,7 @@ def _parse_azure_href(
     container, prefix = _split_bucket_prefix(
         collection_id, href, parsed, bucket_label="container"
     )
-    # icechunk addresses Azure by account + container, but the href only
-    # carries the container, so the account has to come from storage options.
+    # The href carries only the container, so the account comes from options.
     account = _storage_options(asset).get("account_name")
     if not account:
         raise InvalidCatalogError(
@@ -271,8 +244,7 @@ def _parse_tigris_href(
         "type": "tigris",
         "bucket": bucket,
         "prefix": prefix,
-        # Not optional: icechunk rejects a Tigris store with no region unless
-        # it is opted into weak consistency.
+        # icechunk rejects a Tigris store with no region.
         "region": _required_region(collection_id, asset),
     }
 
@@ -286,11 +258,7 @@ _HREF_PARSERS = {
 }
 
 
-# Virtual chunk container credential type -> the URL scheme prefixes its
-# url_prefix may use. Schemes are icechunk's own; it enforces the same
-# scheme/store correspondence when a container is created. Only
-# anonymous/public access types appear here by design: a public catalog must
-# not advertise static credentials.
+# Container credential type -> the url_prefix schemes icechunk pairs it with.
 _CONTAINER_SCHEMES = {
     "s3": ("s3://",),
     "gcs": ("gs://", "gcs://"),
@@ -298,24 +266,18 @@ _CONTAINER_SCHEMES = {
     "tigris": ("tigris://",),
     "http": ("https://",),
 }
-# Container types whose backend signs requests, and so must opt into anonymous
-# access explicitly. Public HTTPS has no notion of signing to opt out of.
+# Types whose backend signs requests, so must opt into anonymous access.
 _SIGNED_CONTAINER_TYPES = frozenset(_CONTAINER_SCHEMES) - {"http"}
-# The only credential keys a public catalog may carry. Anything else (an
-# access key, a bearer token) means the catalog is advertising a secret.
 _ALLOWED_CREDENTIAL_KEYS = {"type", "anonymous"}
 
 
 def _parse_virtual_chunk_containers(
     collection_id: str, asset: dict[str, Any]
 ) -> list[dict[str, str]]:
-    """Parse the allowed virtual-chunk container URL prefixes.
+    """Parse the allowed virtual-chunk containers.
 
-    Returns a list of ``{"url_prefix": ..., "type": ...}`` dicts, where type
-    is a key of :data:`_CONTAINER_SCHEMES`. Only anonymous object-store and
-    public HTTPS containers are accepted — a public catalog must not advertise
-    static credentials. Container type is independent of the repository's own
-    storage type.
+    Returns ``{"url_prefix": ..., "type": ...}`` dicts. Only anonymous access
+    is accepted — a public catalog must not advertise static credentials.
     """
     containers = asset.get("icechunk:virtual_chunk_containers", [])
     if containers is None:
