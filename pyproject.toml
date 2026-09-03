@@ -46,6 +46,7 @@ addopts = "-m 'not slow'"
 markers = [
     "slow: marks tests as slow (hit real network, run with pytest -m slow)",
     "staging: hits the live staging STAC catalog; runs in the non-blocking Staging integration workflow, kept out of the merge-gating test job (also marked slow)",
+    "testcatalog: hits the live test STAC catalog (staging plus fixture datasets); runs alongside the staging tests (also marked slow)",
 ]
 
 [tool.ruff]

@@ -10,7 +10,7 @@ import time
 import urllib.error
 import urllib.request
 from typing import Any
-from urllib.parse import urljoin, urlparse
+from urllib.parse import ParseResult, urljoin, urlparse
 
 from dynamical_catalog.exceptions import (
     CatalogFetchError,
@@ -19,6 +19,7 @@ from dynamical_catalog.exceptions import (
 
 STAC_CATALOG_URL = "https://stac.dynamical.org/catalog.json"
 STAGING_STAC_CATALOG_URL = "https://stac-staging.dynamical.org/catalog.json"
+TEST_STAC_CATALOG_URL = "https://stac-test.dynamical.org/catalog.json"
 # Override the catalog URL to point at a non-production catalog (e.g. staging).
 CATALOG_URL_ENV_VAR = "DYNAMICAL_STAC_CATALOG_URL"
 
@@ -108,46 +109,176 @@ def _fetch_json(url: str) -> Any:
     ) from last_error
 
 
-def _parse_icechunk_asset(collection_id: str, asset: dict[str, Any]) -> dict[str, str]:
+# Asset href scheme -> storage type. Only backends icechunk can read anonymously.
+_HREF_SCHEME_TO_STORAGE_TYPE = {
+    "s3": "s3",
+    "gs": "gcs",
+    "gcs": "gcs",
+    "az": "azure",
+    "azure": "azure",
+    "abfs": "azure",
+    "tigris": "tigris",
+    "https": "http",
+}
+
+
+def _parse_icechunk_asset(collection_id: str, asset: dict[str, Any]) -> dict[str, Any]:
+    """Parse the icechunk asset href into storage config.
+
+    There is no ``r2://`` scheme: R2's S3 endpoint rejects unsigned requests,
+    so public R2 buckets are read over ``https://`` instead.
+    """
     href = asset["href"]
     parsed = urlparse(href)
-    if parsed.scheme != "s3":
+    storage_type = _HREF_SCHEME_TO_STORAGE_TYPE.get(parsed.scheme)
+    if storage_type is None:
         raise InvalidCatalogError(
             f"STAC Collection {collection_id} icechunk asset href scheme is not "
-            f"s3: {href!r}"
+            f"one of {sorted(_HREF_SCHEME_TO_STORAGE_TYPE)}: {href!r}"
         )
+    return _HREF_PARSERS[storage_type](collection_id, asset, href, parsed)
+
+
+def _storage_options(asset: dict[str, Any]) -> dict[str, Any]:
+    return asset.get("xarray:storage_options") or {}
+
+
+def _region(asset: dict[str, Any]) -> Any:
+    return (_storage_options(asset).get("client_kwargs") or {}).get("region_name")
+
+
+def _split_bucket_prefix(
+    collection_id: str,
+    href: str,
+    parsed: ParseResult,
+    *,
+    bucket_label: str = "bucket",
+) -> tuple[str, str]:
+    """Split a ``scheme://bucket/prefix`` href into its bucket and prefix."""
     if not parsed.netloc:
         raise InvalidCatalogError(
             f"STAC Collection {collection_id} icechunk asset href is missing "
-            f"a bucket: {href!r}"
+            f"a {bucket_label}: {href!r}"
         )
-    if not parsed.path.lstrip("/"):
+    prefix = parsed.path.lstrip("/")
+    if not prefix:
         raise InvalidCatalogError(
             f"STAC Collection {collection_id} icechunk asset href is missing "
             f"a prefix: {href!r}"
         )
-    storage_options = asset.get("xarray:storage_options", {})
-    client_kwargs = storage_options.get("client_kwargs", {})
-    region = client_kwargs.get("region_name")
+    return parsed.netloc, prefix
+
+
+def _required_region(collection_id: str, asset: dict[str, Any]) -> str:
+    region = _region(asset)
     if not region:
         raise InvalidCatalogError(
             f"STAC Collection {collection_id} icechunk asset is missing "
             f"xarray:storage_options.client_kwargs.region_name"
         )
+    return region
+
+
+def _parse_http_href(
+    collection_id: str, asset: dict[str, Any], href: str, parsed: ParseResult
+) -> dict[str, Any]:
+    if not parsed.netloc:
+        raise InvalidCatalogError(
+            f"STAC Collection {collection_id} icechunk asset href is missing "
+            f"a host: {href!r}"
+        )
+    if not parsed.path.strip("/"):
+        raise InvalidCatalogError(
+            f"STAC Collection {collection_id} icechunk asset href is missing "
+            f"a prefix: {href!r}"
+        )
+    # icechunk concatenates keys onto base_url; a trailing slash doubles the
+    # separator and surfaces as a misleading "repository doesn't exist".
+    return {"type": "http", "base_url": href.rstrip("/")}
+
+
+def _parse_s3_href(
+    collection_id: str, asset: dict[str, Any], href: str, parsed: ParseResult
+) -> dict[str, Any]:
+    bucket, prefix = _split_bucket_prefix(collection_id, href, parsed)
     return {
-        "bucket": parsed.netloc,
-        "prefix": parsed.path.lstrip("/"),
-        "region": region,
+        "type": "s3",
+        "bucket": bucket,
+        "prefix": prefix,
+        "region": _required_region(collection_id, asset),
     }
+
+
+def _parse_gcs_href(
+    collection_id: str, asset: dict[str, Any], href: str, parsed: ParseResult
+) -> dict[str, Any]:
+    bucket, prefix = _split_bucket_prefix(collection_id, href, parsed)
+    return {"type": "gcs", "bucket": bucket, "prefix": prefix}
+
+
+def _parse_azure_href(
+    collection_id: str, asset: dict[str, Any], href: str, parsed: ParseResult
+) -> dict[str, Any]:
+    container, prefix = _split_bucket_prefix(
+        collection_id, href, parsed, bucket_label="container"
+    )
+    # The href carries only the container, so the account comes from options.
+    account = _storage_options(asset).get("account_name")
+    if not account:
+        raise InvalidCatalogError(
+            f"STAC Collection {collection_id} icechunk asset is missing "
+            f"xarray:storage_options.account_name"
+        )
+    return {
+        "type": "azure",
+        "account": account,
+        "container": container,
+        "prefix": prefix,
+    }
+
+
+def _parse_tigris_href(
+    collection_id: str, asset: dict[str, Any], href: str, parsed: ParseResult
+) -> dict[str, Any]:
+    bucket, prefix = _split_bucket_prefix(collection_id, href, parsed)
+    return {
+        "type": "tigris",
+        "bucket": bucket,
+        "prefix": prefix,
+        # icechunk rejects a Tigris store with no region.
+        "region": _required_region(collection_id, asset),
+    }
+
+
+_HREF_PARSERS = {
+    "s3": _parse_s3_href,
+    "gcs": _parse_gcs_href,
+    "azure": _parse_azure_href,
+    "tigris": _parse_tigris_href,
+    "http": _parse_http_href,
+}
+
+
+# Container credential type -> the url_prefix schemes icechunk pairs it with.
+_CONTAINER_SCHEMES = {
+    "s3": ("s3://",),
+    "gcs": ("gs://", "gcs://"),
+    "azure": ("az://", "azure://", "abfs://"),
+    "tigris": ("tigris://",),
+    "http": ("https://",),
+}
+# Types whose backend signs requests, so must opt into anonymous access.
+_SIGNED_CONTAINER_TYPES = frozenset(_CONTAINER_SCHEMES) - {"http"}
+_ALLOWED_CREDENTIAL_KEYS = {"type", "anonymous"}
 
 
 def _parse_virtual_chunk_containers(
     collection_id: str, asset: dict[str, Any]
-) -> list[str]:
-    """Parse the allowed virtual-chunk container URL prefixes.
+) -> list[dict[str, str]]:
+    """Parse the allowed virtual-chunk containers.
 
-    Only anonymous S3 access is supported — a public catalog must not
-    advertise static credentials.
+    Returns ``{"url_prefix": ..., "type": ...}`` dicts. Only anonymous access
+    is accepted — a public catalog must not advertise static credentials.
     """
     containers = asset.get("icechunk:virtual_chunk_containers", [])
     if containers is None:
@@ -157,22 +288,47 @@ def _parse_virtual_chunk_containers(
             f"STAC Collection {collection_id} icechunk:virtual_chunk_containers "
             f"must be a list, got {type(containers).__name__}: {containers!r}"
         )
-    prefixes: list[str] = []
+    parsed: list[dict[str, str]] = []
     for entry in containers:
         prefix = entry.get("url_prefix")
-        if not isinstance(prefix, str) or not prefix.startswith("s3://"):
-            raise InvalidCatalogError(
-                f"STAC Collection {collection_id} virtual chunk container "
-                f"url_prefix must be an s3:// string: {prefix!r}"
-            )
         credentials = entry.get("credentials") or {}
-        if credentials.get("type") != "s3" or not credentials.get("anonymous"):
+        container_type = credentials.get("type")
+        if not isinstance(container_type, str) or container_type not in (
+            _CONTAINER_SCHEMES
+        ):
             raise InvalidCatalogError(
                 f"STAC Collection {collection_id} virtual chunk container "
-                f"{prefix!r} must use {{type: 's3', anonymous: true}} credentials"
+                f"{prefix!r} credentials type must be one of "
+                f"{sorted(_CONTAINER_SCHEMES)}: {container_type!r}"
             )
-        prefixes.append(prefix)
-    return prefixes
+        schemes = _CONTAINER_SCHEMES[container_type]
+        if not isinstance(prefix, str) or not prefix.startswith(schemes):
+            raise InvalidCatalogError(
+                f"STAC Collection {collection_id} virtual chunk container "
+                f"url_prefix must be a {' or '.join(schemes)} string for "
+                f"{container_type!r} credentials: {prefix!r}"
+            )
+        extra_keys = set(credentials) - _ALLOWED_CREDENTIAL_KEYS
+        if extra_keys:
+            raise InvalidCatalogError(
+                f"STAC Collection {collection_id} virtual chunk container "
+                f"{prefix!r} must not carry credential material; unexpected "
+                f"keys: {sorted(extra_keys)}"
+            )
+        anonymous = credentials.get("anonymous")
+        if container_type in _SIGNED_CONTAINER_TYPES and not anonymous:
+            raise InvalidCatalogError(
+                f"STAC Collection {collection_id} virtual chunk container "
+                f"{prefix!r} must use {{type: {container_type!r}, "
+                f"anonymous: true}} credentials"
+            )
+        if anonymous is False:
+            raise InvalidCatalogError(
+                f"STAC Collection {collection_id} virtual chunk container "
+                f"{prefix!r} must be anonymous"
+            )
+        parsed.append({"url_prefix": prefix, "type": container_type})
+    return parsed
 
 
 def _parse_collection(collection: dict[str, Any]) -> dict[str, Any]:
