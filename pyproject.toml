@@ -22,7 +22,7 @@ dependencies = [
     "xarray>=2025.1.2",
     "zarr~=3.2",
     "icechunk~=2.0",
-    "gribberish>=1.5,<1.7",
+    "gribberish>=1.5,<1.8",
 ]
 
 [build-system]
