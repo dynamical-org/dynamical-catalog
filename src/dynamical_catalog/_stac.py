@@ -19,6 +19,7 @@ from dynamical_catalog.exceptions import (
 
 STAC_CATALOG_URL = "https://stac.dynamical.org/catalog.json"
 STAGING_STAC_CATALOG_URL = "https://stac-staging.dynamical.org/catalog.json"
+TEST_STAC_CATALOG_URL = "https://stac-test.dynamical.org/catalog.json"
 # Override the catalog URL to point at a non-production catalog (e.g. staging).
 CATALOG_URL_ENV_VAR = "DYNAMICAL_STAC_CATALOG_URL"
 
