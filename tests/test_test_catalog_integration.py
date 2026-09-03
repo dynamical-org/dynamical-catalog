@@ -2,9 +2,10 @@
 
 stac-test.dynamical.org is a superset of staging that also carries fixture
 datasets which exist only to exercise this library's read paths against real
-generator output. ``test-gcs-virtual`` is an icechunk repository on public GCS
-whose single chunk is a virtual reference into the same bucket, so it covers
-both the ``gcs`` repository path and the ``gcs`` virtual chunk container path.
+generator output. ``test-gcs-virtual`` and ``test-azure-virtual`` are icechunk
+repositories on public GCS and Azure Blob Storage whose single chunk is a
+virtual reference into the same bucket or container, so each covers both that
+backend's repository path and its virtual chunk container path.
 
 Marked ``testcatalog`` (as well as ``slow``); runs with the staging tests in the
 non-blocking Staging integration workflow.
@@ -21,7 +22,7 @@ from dynamical_catalog._stac import CATALOG_URL_ENV_VAR, TEST_STAC_CATALOG_URL
 
 pytestmark = [pytest.mark.slow, pytest.mark.testcatalog]
 
-_GCS_DATASET = "test-gcs-virtual"
+_FIXTURES = ("test-gcs-virtual", "test-azure-virtual")
 
 
 @pytest.fixture(autouse=True)
@@ -40,12 +41,14 @@ class TestTestCatalog:
             assert len(ds.data_vars) > 0, f"{dataset_id} has no data variables"
 
 
-class TestGcsVirtual:
-    def test_present(self):
-        assert _GCS_DATASET in dynamical_catalog.list()
+class TestFixtures:
+    @pytest.mark.parametrize("dataset_id", _FIXTURES)
+    def test_present(self, dataset_id: str):
+        assert dataset_id in dynamical_catalog.list()
 
-    def test_reads_gcs_virtual_chunk(self):
-        ds = dynamical_catalog.open(_GCS_DATASET)
+    @pytest.mark.parametrize("dataset_id", _FIXTURES)
+    def test_reads_virtual_chunk(self, dataset_id: str):
+        ds = dynamical_catalog.open(dataset_id)
         values = ds["temperature_2m"].values
         assert values.shape == (2, 3, 4)
         assert values.dtype == np.float32
