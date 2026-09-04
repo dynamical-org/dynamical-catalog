@@ -77,7 +77,7 @@ wheels = [
 
 [[package]]
 name = "dynamical-catalog"
-version = "1.0.0"
+version = "1.0.1"
 source = { editable = "." }
 dependencies = [
     { name = "gribberish" },
@@ -96,7 +96,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "gribberish", specifier = ">=1.5,<1.8" },
+    { name = "gribberish", specifier = "~=1.5" },
     { name = "icechunk", specifier = "~=2.0" },
     { name = "mypy", marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'" },

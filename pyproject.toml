@@ -1,6 +1,6 @@
 [project]
 name = "dynamical-catalog"
-version = "1.0.0"
+version = "1.0.1"
 description = "Load dynamical.org weather datasets in one line"
 readme = "README.md"
 license = "MIT"
@@ -22,7 +22,7 @@ dependencies = [
     "xarray>=2025.1.2",
     "zarr~=3.2",
     "icechunk~=2.0",
-    "gribberish>=1.5,<1.8",
+    "gribberish~=1.5",
 ]
 
 [build-system]
