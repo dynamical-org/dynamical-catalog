@@ -41,39 +41,60 @@ SAMPLE_DATASETS = {
     },
 }
 
-# The raw STAC Collections that parse into SAMPLE_DATASETS. The catalog cache
-# holds collections; a dataset's config is parsed only when it is resolved.
-SAMPLE_COLLECTIONS = {
-    dataset_id: {
-        "type": "Collection",
-        "id": dataset_id,
-        "title": dataset["name"],
-        "description": dataset["description"],
-        "assets": {
-            "icechunk": {
-                "href": (
-                    f"s3://{dataset['icechunk']['bucket']}/"
-                    f"{dataset['icechunk']['prefix']}"
-                ),
-                "xarray:storage_options": {
-                    "client_kwargs": {"region_name": dataset["icechunk"]["region"]}
-                },
-            }
-        },
-    }
-    for dataset_id, dataset in SAMPLE_DATASETS.items()
+_ROOT_URL = "https://stac.dynamical.org/catalog.json"
+
+
+def _collection_url(dataset_id: str) -> str:
+    return f"https://stac.dynamical.org/{dataset_id}/collection.json"
+
+
+# What the catalog serves for SAMPLE_DATASETS, by URL.
+SAMPLE_RESPONSES = {
+    _ROOT_URL: {
+        "type": "Catalog",
+        "links": [
+            {"rel": "root", "href": _ROOT_URL},
+            *(
+                {"rel": "child", "href": _collection_url(dataset_id)}
+                for dataset_id in SAMPLE_DATASETS
+            ),
+        ],
+    },
+    **{
+        _collection_url(dataset_id): {
+            "type": "Collection",
+            "id": dataset_id,
+            "title": dataset["name"],
+            "description": dataset["description"],
+            "assets": {
+                "icechunk": {
+                    "href": (
+                        f"s3://{dataset['icechunk']['bucket']}/"
+                        f"{dataset['icechunk']['prefix']}"
+                    ),
+                    "xarray:storage_options": {
+                        "client_kwargs": {"region_name": dataset["icechunk"]["region"]}
+                    },
+                }
+            },
+        }
+        for dataset_id, dataset in SAMPLE_DATASETS.items()
+    },
 }
 
 
 @pytest.fixture(autouse=True)
 def restore_stac_module_state():
-    # Module-level globals in dynamical_catalog._stac (_collections, _identifier)
-    # leak between tests. Snapshot at start, restore at end so individual tests
-    # can mutate them freely without try/finally.
-    saved_datasets = stac._collections
+    # Module-level globals in dynamical_catalog._stac (_collection_urls,
+    # _datasets, _identifier) leak between tests. Snapshot at start, restore at
+    # end so individual tests can mutate them freely without try/finally.
+    saved_collection_urls = stac._collection_urls
+    saved_datasets = stac._datasets
     saved_identifier = stac._identifier
+    stac._datasets = {}
     yield
-    stac._collections = saved_datasets
+    stac._collection_urls = saved_collection_urls
+    stac._datasets = saved_datasets
     stac._identifier = saved_identifier
 
 
@@ -83,14 +104,28 @@ def sample_datasets():
 
 
 @pytest.fixture
-def sample_collections():
-    return SAMPLE_COLLECTIONS
-
-
-@pytest.fixture
-def populated_catalog(sample_datasets, sample_collections):
+def populated_catalog(sample_datasets):
     # Pre-populate the in-process catalog cache so calls to open()/get_store()/
     # list() resolve without hitting the network. The autouse fixture above
     # restores the prior value after the test.
-    stac._collections = sample_collections
+    stac._collection_urls = {
+        dataset_id: _collection_url(dataset_id) for dataset_id in sample_datasets
+    }
+    stac._datasets = dict(sample_datasets)
     return sample_datasets
+
+
+@pytest.fixture
+def served_catalog(mocker):
+    """A cold cache in front of a catalog serving SAMPLE_DATASETS.
+
+    Returns the ``_fetch_json`` mock, whose calls show what was fetched. Tests
+    may add to or replace entries of ``responses`` on it.
+    """
+    stac.clear_cache()
+    responses = dict(SAMPLE_RESPONSES)
+    mock_fetch = mocker.patch.object(
+        stac, "_fetch_json", side_effect=lambda url: responses[url]
+    )
+    mock_fetch.responses = responses
+    return mock_fetch

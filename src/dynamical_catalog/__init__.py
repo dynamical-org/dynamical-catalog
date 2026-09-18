@@ -12,8 +12,8 @@ if TYPE_CHECKING:
     from zarr.abc.store import Store
 
 from dynamical_catalog._stac import (
-    _load_collections,
-    _parse_collection,
+    _load_dataset,
+    _load_root,
     clear_cache,
     set_identifier,
 )
@@ -144,13 +144,13 @@ def list() -> list[str]:  # type: ignore[valid-type]
         CatalogFetchError: Fetching the STAC catalog failed.
         InvalidCatalogError: The catalog response was reachable but malformed.
     """
-    return sorted(_load_collections().keys())
+    return sorted(_load_root())
 
 
 def _resolve(dataset_id: str) -> dict[str, Any]:
-    datasets = _load_collections()
+    datasets = _load_root()
     if dataset_id in datasets:
-        return _parse_collection(datasets[dataset_id])
+        return _load_dataset(dataset_id)
     # Underscore form is deprecated but still accepted when it resolves to a
     # real id. Only warn on resolved hits — a typo with underscores should
     # surface as UnknownDatasetError, not a deprecation notice.
@@ -164,8 +164,8 @@ def _resolve(dataset_id: str) -> dict[str, Any]:
                 DeprecationWarning,
                 stacklevel=3,
             )
-            return _parse_collection(datasets[normalized_id])
-    available = ", ".join(sorted(datasets.keys()))
+            return _load_dataset(normalized_id)
+    available = ", ".join(sorted(datasets))
     raise UnknownDatasetError(f"Unknown dataset {dataset_id!r}. Available: {available}")
 
 

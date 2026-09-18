@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import concurrent.futures
+import copy
 import http.client
 import json
 import os
@@ -26,9 +27,11 @@ CATALOG_URL_ENV_VAR = "DYNAMICAL_STAC_CATALOG_URL"
 _TIMEOUT_SECONDS = 10
 _MAX_ATTEMPTS = 3
 _RETRY_BACKOFF_SECONDS = 1.0
-# Raw STAC Collections by dataset id. A collection is parsed only when its
+# Collection URL by dataset id, from the root catalog's child links.
+_collection_urls: dict[str, str] | None = None
+# Parsed dataset configs. A collection is fetched and parsed only when its
 # dataset is resolved, so one this client can't read doesn't break the others.
-_collections: dict[str, dict[str, Any]] | None = None
+_datasets: dict[str, dict[str, Any]] = {}
 _identifier: str | None = None
 
 
@@ -367,79 +370,106 @@ def _parse_collection(collection: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _load_collections() -> dict[str, dict[str, Any]]:
-    """Fetch the STAC catalog and all child collections, keyed by dataset id.
+def _dataset_id_from_url(url: str) -> str | None:
+    """The dataset id in ``.../<id>/collection.json``, where the catalog puts it.
 
-    Results are cached in-process after the first call.
-    Child collections are fetched in parallel for faster startup. They are
-    returned unparsed; :func:`parse_collection` validates one when it is opened.
+    Reading ids off the root's links is what lets ``list()`` and ``open()`` skip
+    every other collection. It makes that layout, which dynamical.org's catalog
+    generator guarantees, a requirement of any catalog this client is pointed at.
     """
-    global _collections
-    if _collections is not None:
-        return _collections
+    segments = urlparse(url).path.split("/")
+    if len(segments) < 2 or not segments[-1]:
+        return None
+    return segments[-2] or None
+
+
+def _load_root() -> dict[str, str]:
+    """Fetch the root STAC catalog: each dataset id and its collection's URL.
+
+    Cached in-process after the first call. Collections aren't fetched here;
+    :func:`_load_dataset` fetches one when its dataset is resolved.
+    """
+    global _collection_urls
+    if _collection_urls is not None:
+        return _collection_urls
 
     catalog_url = _catalog_url()
     catalog = _fetch_json(catalog_url)
     if "links" not in catalog:
         raise InvalidCatalogError("STAC catalog response is missing 'links'")
-    child_links = [link for link in catalog["links"] if link["rel"] == "child"]
-    urls = [urljoin(catalog_url, link["href"]) for link in child_links]
-
-    collections: list[dict[str, Any]] = [{} for _ in urls]
-    failures: list[tuple[str, Exception]] = []
-    with concurrent.futures.ThreadPoolExecutor() as pool:
-        future_to_index = {
-            pool.submit(_fetch_json, url): i for i, url in enumerate(urls)
-        }
-        for future in concurrent.futures.as_completed(future_to_index):
-            index = future_to_index[future]
-            try:
-                collections[index] = future.result()
-            except Exception as e:
-                failures.append((urls[index], e))
-
-    if failures:
-        failed_urls = tuple(url for url, _ in failures)
-        first_error = failures[0][1]
-        raise CatalogFetchError(
-            f"Failed to fetch {len(failures)} STAC collection(s): {failed_urls}",
-            urls=failed_urls,
-            attempts=_MAX_ATTEMPTS,
-        ) from first_error
-
-    datasets: dict[str, dict[str, Any]] = {}
-    seen_urls: dict[str, str] = {}
-    for url, collection in zip(urls, collections, strict=True):
-        dataset_id = collection.get("id") if isinstance(collection, dict) else None
-        if not isinstance(dataset_id, str) or not dataset_id:
+    collection_urls: dict[str, str] = {}
+    for link in catalog["links"]:
+        if link["rel"] != "child":
+            continue
+        url = urljoin(catalog_url, link["href"])
+        dataset_id = _dataset_id_from_url(url)
+        if dataset_id is None:
             raise InvalidCatalogError(
-                f"STAC Collection at {url} is missing a string 'id'"
+                f"STAC catalog child link {url!r} is not of the form "
+                f".../<dataset id>/collection.json"
             )
-        if dataset_id in datasets:
+        if dataset_id in collection_urls:
             raise InvalidCatalogError(
                 f"STAC catalog contains duplicate dataset id {dataset_id!r}: "
-                f"{seen_urls[dataset_id]} and {url}"
+                f"{collection_urls[dataset_id]} and {url}"
             )
-        datasets[dataset_id] = collection
-        seen_urls[dataset_id] = url
+        collection_urls[dataset_id] = url
 
-    _collections = datasets
-    return _collections
+    _collection_urls = collection_urls
+    return _collection_urls
+
+
+def _load_dataset(dataset_id: str) -> dict[str, Any]:
+    """Fetch and parse the collection of a dataset in the root catalog.
+
+    Cached in-process once it succeeds; a failure is raised again on each call.
+    """
+    if dataset_id in _datasets:
+        return _datasets[dataset_id]
+    url = _load_root()[dataset_id]
+    dataset = _parse_collection(_fetch_json(url))
+    if dataset["id"] != dataset_id:
+        raise InvalidCatalogError(
+            f"STAC Collection at {url} has id {dataset['id']!r}, "
+            f"not the {dataset_id!r} its URL names"
+        )
+    _datasets[dataset_id] = dataset
+    return dataset
 
 
 def load_catalog() -> dict[str, dict[str, Any]]:
-    """Fetch the STAC catalog and parse every collection's dataset config.
+    """Fetch and parse every dataset's collection, in parallel.
 
-    Raises if any collection can't be parsed; ``open()`` and ``list()`` use
-    :func:`_load_collections` instead so one such collection doesn't break them.
+    Raises if any collection can't be fetched or parsed; ``open()`` and
+    ``list()`` load only what they need, so one such collection doesn't break
+    them. The configs returned are the caller's own copies.
     """
+    collection_urls = _load_root()
+    with concurrent.futures.ThreadPoolExecutor() as pool:
+        futures = {
+            dataset_id: pool.submit(_load_dataset, dataset_id)
+            for dataset_id in collection_urls
+        }
+    fetch_errors = [
+        e
+        for future in futures.values()
+        if isinstance(e := future.exception(), CatalogFetchError)
+    ]
+    if fetch_errors:
+        failed_urls = tuple(url for e in fetch_errors for url in e.urls)
+        raise CatalogFetchError(
+            f"Failed to fetch {len(failed_urls)} STAC collection(s): {failed_urls}",
+            urls=failed_urls,
+            attempts=max(e.attempts for e in fetch_errors),
+        ) from fetch_errors[0]
     return {
-        dataset_id: _parse_collection(collection)
-        for dataset_id, collection in _load_collections().items()
+        dataset_id: copy.deepcopy(future.result())
+        for dataset_id, future in futures.items()
     }
 
 
 def clear_cache() -> None:
     """Clear the cached catalog data, forcing a fresh fetch on next access."""
-    global _collections
-    _collections = None
+    global _collection_urls, _datasets
+    _collection_urls = None
+    _datasets = {}
