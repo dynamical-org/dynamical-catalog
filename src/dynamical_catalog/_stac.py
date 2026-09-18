@@ -378,7 +378,7 @@ def _dataset_id_from_url(url: str) -> str | None:
     generator guarantees, a requirement of any catalog this client is pointed at.
     """
     segments = urlparse(url).path.split("/")
-    if len(segments) < 2 or not segments[-1]:
+    if len(segments) < 2 or segments[-1] != "collection.json":
         return None
     return segments[-2] or None
 

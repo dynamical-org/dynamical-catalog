@@ -14,6 +14,7 @@ from dynamical_catalog.exceptions import (
 
 _CATALOG_URL = "https://stac.dynamical.org/catalog.json"
 _COLLECTION_URL = "https://stac.dynamical.org/noaa-gfs-forecast/collection.json"
+_BASE = "https://stac.dynamical.org"
 
 MOCK_CATALOG = {
     "type": "Catalog",
@@ -815,8 +816,37 @@ class TestLoadRoot:
         assert "v2/noaa-gfs-forecast/collection.json" in str(e.value)
 
     @pytest.mark.parametrize(
+        ("catalog_url", "href", "expected"),
+        [
+            (_CATALOG_URL, "./a/collection.json", f"{_BASE}/a/collection.json"),
+            (_CATALOG_URL, f"{_BASE}/a/collection.json", f"{_BASE}/a/collection.json"),
+            (_CATALOG_URL, "./a/collection.json?v=2", f"{_BASE}/a/collection.json?v=2"),
+            (
+                "https://example.org/mirror/stac/catalog.json",
+                "./a/collection.json",
+                "https://example.org/mirror/stac/a/collection.json",
+            ),
+        ],
+    )
+    def test_child_link_forms_that_name_a_dataset(
+        self, mocker, monkeypatch, catalog_url, href, expected
+    ):
+        monkeypatch.setenv(stac.CATALOG_URL_ENV_VAR, catalog_url)
+        catalog = {**MOCK_CATALOG, "links": [{"rel": "child", "href": href}]}
+        _serve(mocker, {catalog_url: catalog})
+        assert stac._load_root() == {"a": expected}
+
+    @pytest.mark.parametrize(
         "href",
-        ["./collection.json", "https://stac.dynamical.org/", "//collection.json"],
+        [
+            "./collection.json",
+            "https://stac.dynamical.org/",
+            "//collection.json",
+            "./a/catalog.json",
+            "./a/metadata.json",
+            "./a/collection.json/",
+            "./a/",
+        ],
     )
     def test_child_link_without_a_dataset_id_raises(self, mocker, href):
         catalog = {**MOCK_CATALOG, "links": [{"rel": "child", "href": href}]}

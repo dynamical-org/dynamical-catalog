@@ -53,8 +53,10 @@ def identify(identifier: str | None) -> None:
 def get_store(dataset_id: str) -> Store:
     """Get a zarr Store for a dynamical.org dataset's icechunk repository.
 
-    On the first call (per process) this fetches the STAC catalog from
-    dynamical.org; subsequent calls reuse the in-process cache.
+    This fetches the root STAC catalog from dynamical.org on the first call (per
+    process) and this dataset's collection the first time it is asked for; both
+    are cached in-process, so only a repeat call for the same dataset needs no
+    catalog request.
 
     Args:
         dataset_id: Dataset identifier (e.g. ``"noaa-gfs-forecast"``).
@@ -83,8 +85,10 @@ def get_repository(dataset_id: str) -> icechunk.Repository:
     ``readonly_session()`` — as needed for e.g. monitoring dataset publication.
     Virtual chunk containers are authorized so reads resolve their source chunks.
 
-    On the first call (per process) this fetches the STAC catalog from
-    dynamical.org; subsequent calls reuse the in-process cache.
+    This fetches the root STAC catalog from dynamical.org on the first call (per
+    process) and this dataset's collection the first time it is asked for; both
+    are cached in-process, so only a repeat call for the same dataset needs no
+    catalog request.
 
     Args:
         dataset_id: Dataset identifier (e.g. ``"noaa-gfs-forecast"``).
@@ -106,8 +110,10 @@ def get_repository(dataset_id: str) -> icechunk.Repository:
 def open(dataset_id: str, **kwargs: Any) -> xr.Dataset:
     """Open a dynamical.org dataset by ID as an :class:`xarray.Dataset`.
 
-    On the first call (per process) this fetches the STAC catalog from
-    dynamical.org; subsequent calls reuse the in-process cache.
+    This fetches the root STAC catalog from dynamical.org on the first call (per
+    process) and this dataset's collection the first time it is asked for; both
+    are cached in-process, so only a repeat call for the same dataset needs no
+    catalog request.
 
     Args:
         dataset_id: Dataset identifier (e.g. ``"noaa-gfs-forecast"``).
@@ -133,8 +139,9 @@ def open(dataset_id: str, **kwargs: Any) -> xr.Dataset:
 def list() -> list[str]:  # type: ignore[valid-type]
     """List available dataset IDs, sorted alphabetically.
 
-    On the first call (per process) this fetches the STAC catalog from
-    dynamical.org; subsequent calls reuse the in-process cache.
+    On the first call (per process) this fetches the root STAC catalog from
+    dynamical.org; subsequent calls reuse the in-process cache. No dataset's
+    collection is fetched.
 
     Returns:
         Sorted list of dataset IDs. Datasets are validated only when opened,
