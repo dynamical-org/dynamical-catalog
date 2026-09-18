@@ -71,9 +71,9 @@ class TestOpen:
     ):
         # When the in-process cache is empty, calling open() should drive a
         # catalog fetch through load_catalog() rather than silently failing.
-        stac._datasets = None
+        stac._collections = None
         mock_load = mocker.patch(
-            "dynamical_catalog.load_catalog", return_value=sample_collections
+            "dynamical_catalog._load_collections", return_value=sample_collections
         )
         mock_open = mocker.patch("dynamical_catalog._open._open_dataset")
 
@@ -86,7 +86,7 @@ class TestOpen:
         self, populated_catalog, sample_collections, mocker
     ):
         # A collection this client cannot parse must not break other datasets.
-        stac._datasets = {
+        stac._collections = {
             **sample_collections,
             "future-dataset": {
                 "id": "future-dataset",
@@ -103,7 +103,7 @@ class TestOpen:
     def test_open_unsupported_collection_raises_with_upgrade_hint(
         self, populated_catalog, sample_collections
     ):
-        stac._datasets = {
+        stac._collections = {
             **sample_collections,
             "future-dataset": {
                 "id": "future-dataset",
@@ -116,7 +116,7 @@ class TestOpen:
     def test_open_underscore_id_of_unsupported_collection_raises_its_error(
         self, populated_catalog, sample_collections
     ):
-        stac._datasets = {
+        stac._collections = {
             **sample_collections,
             "future-dataset": {
                 "id": "future-dataset",
@@ -147,9 +147,9 @@ class TestGetStore:
     def test_get_store_triggers_catalog_fetch_on_cold_cache(
         self, sample_datasets, sample_collections, mocker
     ):
-        stac._datasets = None
+        stac._collections = None
         mock_load = mocker.patch(
-            "dynamical_catalog.load_catalog", return_value=sample_collections
+            "dynamical_catalog._load_collections", return_value=sample_collections
         )
         mock_get_store = mocker.patch("dynamical_catalog._open._get_store")
 
@@ -176,9 +176,9 @@ class TestGetRepository:
     def test_get_repository_triggers_catalog_fetch_on_cold_cache(
         self, sample_datasets, sample_collections, mocker
     ):
-        stac._datasets = None
+        stac._collections = None
         mock_load = mocker.patch(
-            "dynamical_catalog.load_catalog", return_value=sample_collections
+            "dynamical_catalog._load_collections", return_value=sample_collections
         )
         mock_get_repo = mocker.patch("dynamical_catalog._open._get_repository")
 
@@ -198,9 +198,9 @@ class TestList:
     def test_list_triggers_catalog_fetch_on_cold_cache(
         self, sample_datasets, sample_collections, mocker
     ):
-        stac._datasets = None
+        stac._collections = None
         mock_load = mocker.patch(
-            "dynamical_catalog.load_catalog", return_value=sample_collections
+            "dynamical_catalog._load_collections", return_value=sample_collections
         )
 
         ids = dynamical_catalog.list()
@@ -250,11 +250,11 @@ class TestClearCache:
         self, sample_datasets, sample_collections, mocker
     ):
         # Prime cache, then ensure clear_cache forces a refetch path.
-        stac._datasets = sample_collections
+        stac._collections = sample_collections
         dynamical_catalog.clear_cache()
 
         mock_load = mocker.patch(
-            "dynamical_catalog.load_catalog", return_value=sample_collections
+            "dynamical_catalog._load_collections", return_value=sample_collections
         )
         mock_open = mocker.patch("dynamical_catalog._open._open_dataset")
 

@@ -67,15 +67,13 @@ SAMPLE_COLLECTIONS = {
 
 @pytest.fixture(autouse=True)
 def restore_stac_module_state():
-    # Module-level globals in dynamical_catalog._stac (_datasets, _identifier)
+    # Module-level globals in dynamical_catalog._stac (_collections, _identifier)
     # leak between tests. Snapshot at start, restore at end so individual tests
     # can mutate them freely without try/finally.
-    saved_datasets = stac._datasets
+    saved_datasets = stac._collections
     saved_identifier = stac._identifier
-    saved_duplicate_urls = stac._duplicate_urls
     yield
-    stac._duplicate_urls = saved_duplicate_urls
-    stac._datasets = saved_datasets
+    stac._collections = saved_datasets
     stac._identifier = saved_identifier
 
 
@@ -94,5 +92,5 @@ def populated_catalog(sample_datasets, sample_collections):
     # Pre-populate the in-process catalog cache so calls to open()/get_store()/
     # list() resolve without hitting the network. The autouse fixture above
     # restores the prior value after the test.
-    stac._datasets = sample_collections
+    stac._collections = sample_collections
     return sample_datasets

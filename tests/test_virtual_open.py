@@ -107,7 +107,7 @@ def patched_s3_storage(virtual_icechunk_repo: str) -> Iterator[None]:
         return icechunk.local_filesystem_storage(virtual_icechunk_repo)
 
     with (
-        patch.object(stac, "_datasets", None),
+        patch.object(stac, "_collections", None),
         patch(
             "dynamical_catalog._open.icechunk.s3_storage", side_effect=fake_s3_storage
         ),

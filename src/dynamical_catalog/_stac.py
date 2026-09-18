@@ -28,9 +28,7 @@ _MAX_ATTEMPTS = 3
 _RETRY_BACKOFF_SECONDS = 1.0
 # Raw STAC Collections by dataset id. A collection is parsed only when its
 # dataset is resolved, so one this client can't read doesn't break the others.
-_datasets: dict[str, dict[str, Any]] | None = None
-# Dataset id -> every collection URL that claims it, for ids claimed twice.
-_duplicate_urls: dict[str, tuple[str, ...]] = {}
+_collections: dict[str, dict[str, Any]] | None = None
 _identifier: str | None = None
 
 
@@ -369,29 +367,16 @@ def _parse_collection(collection: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def parse_dataset(dataset_id: str, collection: dict[str, Any]) -> dict[str, Any]:
-    """Parse one dataset's config from its STAC Collection.
-
-    Validation happens here, per dataset, rather than in :func:`load_catalog`.
-    """
-    if dataset_id in _duplicate_urls:
-        raise InvalidCatalogError(
-            f"STAC catalog contains duplicate dataset id {dataset_id!r}: "
-            f"{' and '.join(_duplicate_urls[dataset_id])}"
-        )
-    return _parse_collection(collection)
-
-
-def load_catalog() -> dict[str, dict[str, Any]]:
+def _load_collections() -> dict[str, dict[str, Any]]:
     """Fetch the STAC catalog and all child collections, keyed by dataset id.
 
     Results are cached in-process after the first call.
     Child collections are fetched in parallel for faster startup. They are
-    returned unparsed; use :func:`parse_dataset` for a dataset's config.
+    returned unparsed; :func:`parse_collection` validates one when it is opened.
     """
-    global _datasets, _duplicate_urls
-    if _datasets is not None:
-        return _datasets
+    global _collections
+    if _collections is not None:
+        return _collections
 
     catalog_url = _catalog_url()
     catalog = _fetch_json(catalog_url)
@@ -423,27 +408,38 @@ def load_catalog() -> dict[str, dict[str, Any]]:
         ) from first_error
 
     datasets: dict[str, dict[str, Any]] = {}
-    seen_urls: dict[str, tuple[str, ...]] = {}
+    seen_urls: dict[str, str] = {}
     for url, collection in zip(urls, collections, strict=True):
         dataset_id = collection.get("id") if isinstance(collection, dict) else None
         if not isinstance(dataset_id, str) or not dataset_id:
             raise InvalidCatalogError(
                 f"STAC Collection at {url} is missing a string 'id'"
             )
-        datasets.setdefault(dataset_id, collection)
-        seen_urls[dataset_id] = (*seen_urls.get(dataset_id, ()), url)
+        if dataset_id in datasets:
+            raise InvalidCatalogError(
+                f"STAC catalog contains duplicate dataset id {dataset_id!r}: "
+                f"{seen_urls[dataset_id]} and {url}"
+            )
+        datasets[dataset_id] = collection
+        seen_urls[dataset_id] = url
 
-    _duplicate_urls = {
-        dataset_id: claimed
-        for dataset_id, claimed in seen_urls.items()
-        if len(claimed) > 1
+    _collections = datasets
+    return _collections
+
+
+def load_catalog() -> dict[str, dict[str, Any]]:
+    """Fetch the STAC catalog and parse every collection's dataset config.
+
+    Raises if any collection can't be parsed; ``open()`` and ``list()`` use
+    :func:`_load_collections` instead so one such collection doesn't break them.
+    """
+    return {
+        dataset_id: _parse_collection(collection)
+        for dataset_id, collection in _load_collections().items()
     }
-    _datasets = datasets
-    return _datasets
 
 
 def clear_cache() -> None:
     """Clear the cached catalog data, forcing a fresh fetch on next access."""
-    global _datasets, _duplicate_urls
-    _datasets = None
-    _duplicate_urls = {}
+    global _collections
+    _collections = None
