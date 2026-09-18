@@ -26,7 +26,11 @@ CATALOG_URL_ENV_VAR = "DYNAMICAL_STAC_CATALOG_URL"
 _TIMEOUT_SECONDS = 10
 _MAX_ATTEMPTS = 3
 _RETRY_BACKOFF_SECONDS = 1.0
+# Raw STAC Collections by dataset id. A collection is parsed only when its
+# dataset is resolved, so one this client can't read doesn't break the others.
 _datasets: dict[str, dict[str, Any]] | None = None
+# Dataset id -> every collection URL that claims it, for ids claimed twice.
+_duplicate_urls: dict[str, tuple[str, ...]] = {}
 _identifier: str | None = None
 
 
@@ -109,6 +113,11 @@ def _fetch_json(url: str) -> Any:
     ) from last_error
 
 
+_UPGRADE_HINT = (
+    "A newer dynamical-catalog may support it; try upgrading "
+    "(pip install --upgrade dynamical-catalog)."
+)
+
 # Asset href scheme -> storage type. Only backends icechunk can read anonymously.
 _HREF_SCHEME_TO_STORAGE_TYPE = {
     "s3": "s3",
@@ -134,7 +143,8 @@ def _parse_icechunk_asset(collection_id: str, asset: dict[str, Any]) -> dict[str
     if storage_type is None:
         raise InvalidCatalogError(
             f"STAC Collection {collection_id} icechunk asset href scheme is not "
-            f"one of {sorted(_HREF_SCHEME_TO_STORAGE_TYPE)}: {href!r}"
+            f"one of {sorted(_HREF_SCHEME_TO_STORAGE_TYPE)}: {href!r}. "
+            f"{_UPGRADE_HINT}"
         )
     return _HREF_PARSERS[storage_type](collection_id, asset, href, parsed)
 
@@ -299,7 +309,8 @@ def _parse_virtual_chunk_containers(
             raise InvalidCatalogError(
                 f"STAC Collection {collection_id} virtual chunk container "
                 f"{prefix!r} credentials type must be one of "
-                f"{sorted(_CONTAINER_SCHEMES)}: {container_type!r}"
+                f"{sorted(_CONTAINER_SCHEMES)}: {container_type!r}. "
+                f"{_UPGRADE_HINT}"
             )
         schemes = _CONTAINER_SCHEMES[container_type]
         if not isinstance(prefix, str) or not prefix.startswith(schemes):
@@ -358,13 +369,27 @@ def _parse_collection(collection: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def parse_dataset(dataset_id: str, collection: dict[str, Any]) -> dict[str, Any]:
+    """Parse one dataset's config from its STAC Collection.
+
+    Validation happens here, per dataset, rather than in :func:`load_catalog`.
+    """
+    if dataset_id in _duplicate_urls:
+        raise InvalidCatalogError(
+            f"STAC catalog contains duplicate dataset id {dataset_id!r}: "
+            f"{' and '.join(_duplicate_urls[dataset_id])}"
+        )
+    return _parse_collection(collection)
+
+
 def load_catalog() -> dict[str, dict[str, Any]]:
-    """Fetch the STAC catalog and all child collections.
+    """Fetch the STAC catalog and all child collections, keyed by dataset id.
 
     Results are cached in-process after the first call.
-    Child collections are fetched in parallel for faster startup.
+    Child collections are fetched in parallel for faster startup. They are
+    returned unparsed; use :func:`parse_dataset` for a dataset's config.
     """
-    global _datasets
+    global _datasets, _duplicate_urls
     if _datasets is not None:
         return _datasets
 
@@ -398,23 +423,27 @@ def load_catalog() -> dict[str, dict[str, Any]]:
         ) from first_error
 
     datasets: dict[str, dict[str, Any]] = {}
-    seen_urls: dict[str, str] = {}
+    seen_urls: dict[str, tuple[str, ...]] = {}
     for url, collection in zip(urls, collections, strict=True):
-        parsed = _parse_collection(collection)
-        dataset_id = parsed["id"]
-        if dataset_id in datasets:
+        dataset_id = collection.get("id") if isinstance(collection, dict) else None
+        if not isinstance(dataset_id, str) or not dataset_id:
             raise InvalidCatalogError(
-                f"STAC catalog contains duplicate dataset id {dataset_id!r}: "
-                f"{seen_urls[dataset_id]} and {url}"
+                f"STAC Collection at {url} is missing a string 'id'"
             )
-        datasets[dataset_id] = parsed
-        seen_urls[dataset_id] = url
+        datasets.setdefault(dataset_id, collection)
+        seen_urls[dataset_id] = (*seen_urls.get(dataset_id, ()), url)
 
+    _duplicate_urls = {
+        dataset_id: claimed
+        for dataset_id, claimed in seen_urls.items()
+        if len(claimed) > 1
+    }
     _datasets = datasets
     return _datasets
 
 
 def clear_cache() -> None:
     """Clear the cached catalog data, forcing a fresh fetch on next access."""
-    global _datasets
+    global _datasets, _duplicate_urls
     _datasets = None
+    _duplicate_urls = {}

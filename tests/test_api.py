@@ -6,6 +6,7 @@ import dynamical_catalog
 import dynamical_catalog._stac as stac
 from dynamical_catalog.exceptions import (
     DynamicalCatalogError,
+    InvalidCatalogError,
     UnknownDatasetError,
 )
 
@@ -65,12 +66,14 @@ class TestOpen:
         assert all(p >= 0 for p in positions)
         assert positions == sorted(positions)
 
-    def test_open_triggers_catalog_fetch_on_cold_cache(self, sample_datasets, mocker):
+    def test_open_triggers_catalog_fetch_on_cold_cache(
+        self, sample_datasets, sample_collections, mocker
+    ):
         # When the in-process cache is empty, calling open() should drive a
         # catalog fetch through load_catalog() rather than silently failing.
         stac._datasets = None
         mock_load = mocker.patch(
-            "dynamical_catalog.load_catalog", return_value=sample_datasets
+            "dynamical_catalog.load_catalog", return_value=sample_collections
         )
         mock_open = mocker.patch("dynamical_catalog._open._open_dataset")
 
@@ -78,6 +81,53 @@ class TestOpen:
 
         mock_load.assert_called_once()
         mock_open.assert_called_once_with(sample_datasets["noaa-gfs-forecast"])
+
+    def test_open_ignores_unsupported_unrelated_collection(
+        self, populated_catalog, sample_collections, mocker
+    ):
+        # A collection this client cannot parse must not break other datasets.
+        stac._datasets = {
+            **sample_collections,
+            "future-dataset": {
+                "id": "future-dataset",
+                "assets": {"icechunk": {"href": "ftp://bucket/prefix/"}},
+            },
+        }
+        mock_open = mocker.patch("dynamical_catalog._open._open_dataset")
+
+        dynamical_catalog.open("noaa-gfs-forecast")
+
+        mock_open.assert_called_once_with(populated_catalog["noaa-gfs-forecast"])
+        assert "future-dataset" in dynamical_catalog.list()
+
+    def test_open_unsupported_collection_raises_with_upgrade_hint(
+        self, populated_catalog, sample_collections
+    ):
+        stac._datasets = {
+            **sample_collections,
+            "future-dataset": {
+                "id": "future-dataset",
+                "assets": {"icechunk": {"href": "ftp://bucket/prefix/"}},
+            },
+        }
+        with pytest.raises(InvalidCatalogError, match="upgrad"):
+            dynamical_catalog.open("future-dataset")
+
+    def test_open_underscore_id_of_unsupported_collection_raises_its_error(
+        self, populated_catalog, sample_collections
+    ):
+        stac._datasets = {
+            **sample_collections,
+            "future-dataset": {
+                "id": "future-dataset",
+                "assets": {"icechunk": {"href": "ftp://bucket/prefix/"}},
+            },
+        }
+        with (
+            pytest.warns(DeprecationWarning, match="Underscores in dataset ids"),
+            pytest.raises(InvalidCatalogError, match="future-dataset"),
+        ):
+            dynamical_catalog.open("future_dataset")
 
 
 class TestGetStore:
@@ -95,11 +145,11 @@ class TestGetStore:
         mock_get_store.assert_called_once_with(populated_catalog["noaa-gfs-forecast"])
 
     def test_get_store_triggers_catalog_fetch_on_cold_cache(
-        self, sample_datasets, mocker
+        self, sample_datasets, sample_collections, mocker
     ):
         stac._datasets = None
         mock_load = mocker.patch(
-            "dynamical_catalog.load_catalog", return_value=sample_datasets
+            "dynamical_catalog.load_catalog", return_value=sample_collections
         )
         mock_get_store = mocker.patch("dynamical_catalog._open._get_store")
 
@@ -124,11 +174,11 @@ class TestGetRepository:
         mock_get_repo.assert_called_once_with(populated_catalog["noaa-gfs-forecast"])
 
     def test_get_repository_triggers_catalog_fetch_on_cold_cache(
-        self, sample_datasets, mocker
+        self, sample_datasets, sample_collections, mocker
     ):
         stac._datasets = None
         mock_load = mocker.patch(
-            "dynamical_catalog.load_catalog", return_value=sample_datasets
+            "dynamical_catalog.load_catalog", return_value=sample_collections
         )
         mock_get_repo = mocker.patch("dynamical_catalog._open._get_repository")
 
@@ -145,10 +195,12 @@ class TestList:
         assert ids == sorted(ids)
         assert "noaa-gfs-forecast" in ids
 
-    def test_list_triggers_catalog_fetch_on_cold_cache(self, sample_datasets, mocker):
+    def test_list_triggers_catalog_fetch_on_cold_cache(
+        self, sample_datasets, sample_collections, mocker
+    ):
         stac._datasets = None
         mock_load = mocker.patch(
-            "dynamical_catalog.load_catalog", return_value=sample_datasets
+            "dynamical_catalog.load_catalog", return_value=sample_collections
         )
 
         ids = dynamical_catalog.list()
@@ -194,13 +246,15 @@ class TestIdentify:
 
 
 class TestClearCache:
-    def test_clear_cache_resets_cached_catalog(self, sample_datasets, mocker):
+    def test_clear_cache_resets_cached_catalog(
+        self, sample_datasets, sample_collections, mocker
+    ):
         # Prime cache, then ensure clear_cache forces a refetch path.
-        stac._datasets = sample_datasets
+        stac._datasets = sample_collections
         dynamical_catalog.clear_cache()
 
         mock_load = mocker.patch(
-            "dynamical_catalog.load_catalog", return_value=sample_datasets
+            "dynamical_catalog.load_catalog", return_value=sample_collections
         )
         mock_open = mocker.patch("dynamical_catalog._open._open_dataset")
 
