@@ -14,6 +14,7 @@ from dynamical_catalog.exceptions import (
 
 _CATALOG_URL = "https://stac.dynamical.org/catalog.json"
 _COLLECTION_URL = "https://stac.dynamical.org/noaa-gfs-forecast/collection.json"
+_BASE = "https://stac.dynamical.org"
 
 MOCK_CATALOG = {
     "type": "Catalog",
@@ -774,113 +775,193 @@ class TestParseVirtualChunkContainers:
             stac._parse_collection(collection)
 
 
-class TestLoadCatalog:
-    def test_loads_and_caches(self, mocker):
-        responses = {
-            _CATALOG_URL: MOCK_CATALOG,
-            _COLLECTION_URL: MOCK_COLLECTION,
-        }
-        mocker.patch.object(stac, "_fetch_json", side_effect=lambda url: responses[url])
+def _serve(mocker, responses):
+    return mocker.patch.object(
+        stac, "_fetch_json", side_effect=lambda url: responses[url]
+    )
 
-        result = stac.load_catalog()
-        assert "noaa-gfs-forecast" in result
-        assert result["noaa-gfs-forecast"]["icechunk"]["region"] == "us-west-2"
 
-        # Second call should use cache (no additional fetch)
-        result2 = stac.load_catalog()
-        assert result2 is result
+class TestLoadRoot:
+    def test_maps_dataset_ids_to_collection_urls_without_fetching_them(self, mocker):
+        mock_fetch = _serve(mocker, {_CATALOG_URL: MOCK_CATALOG})
+
+        assert stac._load_root() == {"noaa-gfs-forecast": _COLLECTION_URL}
+        # Second call uses the cache.
+        assert stac._load_root() is stac._load_root()
+        mock_fetch.assert_called_once_with(_CATALOG_URL)
 
     def test_missing_links_raises_invalid_catalog_error(self, mocker):
         catalog_without_links = {k: v for k, v in MOCK_CATALOG.items() if k != "links"}
-        mocker.patch.object(stac, "_fetch_json", return_value=catalog_without_links)
+        _serve(mocker, {_CATALOG_URL: catalog_without_links})
         with pytest.raises(InvalidCatalogError, match="missing 'links'"):
-            stac.load_catalog()
+            stac._load_root()
 
     def test_empty_catalog_returns_empty_dict(self, mocker):
         # An empty catalog (no child links) is a valid state and returns {}.
-        empty_catalog = {**MOCK_CATALOG, "links": []}
-        mocker.patch.object(stac, "_fetch_json", return_value=empty_catalog)
-        result = stac.load_catalog()
-        assert result == {}
+        _serve(mocker, {_CATALOG_URL: {**MOCK_CATALOG, "links": []}})
+        assert stac._load_root() == {}
+        assert stac.load_catalog() == {}
 
     def test_duplicate_ids_raise_invalid_catalog_error(self, mocker):
         catalog = {
             **MOCK_CATALOG,
             "links": [
-                {"rel": "child", "href": "./first/collection.json"},
-                {"rel": "child", "href": "./second/collection.json"},
+                {"rel": "child", "href": "./noaa-gfs-forecast/collection.json"},
+                {"rel": "child", "href": "./v2/noaa-gfs-forecast/collection.json"},
             ],
         }
-        first = {
-            **MOCK_COLLECTION,
-            "description": "first",
-            "assets": {
-                "icechunk": {
-                    **MOCK_COLLECTION["assets"]["icechunk"],
-                    "href": "s3://bucket/first/",
-                }
-            },
-        }
-        second = {
-            **MOCK_COLLECTION,
-            "description": "second",
-            "assets": {
-                "icechunk": {
-                    **MOCK_COLLECTION["assets"]["icechunk"],
-                    "href": "s3://bucket/second/",
-                }
-            },
-        }
-        responses = {
-            _CATALOG_URL: catalog,
-            "https://stac.dynamical.org/first/collection.json": first,
-            "https://stac.dynamical.org/second/collection.json": second,
-        }
-        mocker.patch.object(stac, "_fetch_json", side_effect=lambda url: responses[url])
+        _serve(mocker, {_CATALOG_URL: catalog})
+        with pytest.raises(InvalidCatalogError, match="duplicate dataset id") as e:
+            stac._load_root()
+        assert "v2/noaa-gfs-forecast/collection.json" in str(e.value)
 
-        with pytest.raises(InvalidCatalogError, match="duplicate dataset id"):
-            stac.load_catalog()
+    @pytest.mark.parametrize(
+        ("catalog_url", "href", "expected"),
+        [
+            (_CATALOG_URL, "./a/collection.json", f"{_BASE}/a/collection.json"),
+            (_CATALOG_URL, f"{_BASE}/a/collection.json", f"{_BASE}/a/collection.json"),
+            (_CATALOG_URL, "./a/collection.json?v=2", f"{_BASE}/a/collection.json?v=2"),
+            (
+                "https://example.org/mirror/stac/catalog.json",
+                "./a/collection.json",
+                "https://example.org/mirror/stac/a/collection.json",
+            ),
+        ],
+    )
+    def test_child_link_forms_that_name_a_dataset(
+        self, mocker, monkeypatch, catalog_url, href, expected
+    ):
+        monkeypatch.setenv(stac.CATALOG_URL_ENV_VAR, catalog_url)
+        catalog = {**MOCK_CATALOG, "links": [{"rel": "child", "href": href}]}
+        _serve(mocker, {catalog_url: catalog})
+        assert stac._load_root() == {"a": expected}
 
-    def test_failing_child_fetch_raises_catalog_fetch_error(self, mocker):
-        # A failing child fetch is gathered into a single CatalogFetchError
-        # listing every failed URL.
+    @pytest.mark.parametrize(
+        "href",
+        [
+            "./collection.json",
+            "https://stac.dynamical.org/",
+            "//collection.json",
+            "./a/catalog.json",
+            "./a/metadata.json",
+            "./a/collection.json/",
+            "./a/",
+        ],
+    )
+    def test_child_link_without_a_dataset_id_raises(self, mocker, href):
+        catalog = {**MOCK_CATALOG, "links": [{"rel": "child", "href": href}]}
+        _serve(mocker, {_CATALOG_URL: catalog})
+        with pytest.raises(InvalidCatalogError, match="<dataset id>/collection.json"):
+            stac._load_root()
+
+
+class TestLoadDataset:
+    def test_fetches_parses_and_caches_one_collection(self, mocker):
+        mock_fetch = _serve(
+            mocker, {_CATALOG_URL: MOCK_CATALOG, _COLLECTION_URL: MOCK_COLLECTION}
+        )
+
+        dataset = stac._load_dataset("noaa-gfs-forecast")
+
+        assert dataset["icechunk"]["region"] == "us-west-2"
+        assert stac._load_dataset("noaa-gfs-forecast") is dataset
+        assert mock_fetch.call_count == 2
+
+    def test_collection_id_must_match_the_id_its_url_names(self, mocker):
+        _serve(
+            mocker,
+            {
+                _CATALOG_URL: MOCK_CATALOG,
+                _COLLECTION_URL: {**MOCK_COLLECTION, "id": "something-else"},
+            },
+        )
+        with pytest.raises(InvalidCatalogError, match="something-else"):
+            stac._load_dataset("noaa-gfs-forecast")
+
+    def test_fetch_failure_propagates_and_is_not_cached(self, mocker):
+        responses = {_CATALOG_URL: MOCK_CATALOG}
+
         def fetch(url):
-            if url == _CATALOG_URL:
-                return MOCK_CATALOG
-            raise CatalogFetchError(
-                f"Failed to fetch {url}", urls=(url,), attempts=stac._MAX_ATTEMPTS
-            )
+            if url not in responses:
+                raise CatalogFetchError(
+                    f"Failed to fetch {url}", urls=(url,), attempts=stac._MAX_ATTEMPTS
+                )
+            return responses[url]
 
         mocker.patch.object(stac, "_fetch_json", side_effect=fetch)
         with pytest.raises(CatalogFetchError) as excinfo:
-            stac.load_catalog()
+            stac._load_dataset("noaa-gfs-forecast")
         assert excinfo.value.urls == (_COLLECTION_URL,)
 
-    def test_failing_child_fetch_lists_all_failed_urls(self, mocker):
+        responses[_COLLECTION_URL] = MOCK_COLLECTION
+        assert stac._load_dataset("noaa-gfs-forecast")["id"] == "noaa-gfs-forecast"
+
+
+class TestLoadCatalog:
+    def _two_dataset_catalog(self):
+        other_url = "https://stac.dynamical.org/other-dataset/collection.json"
         catalog = {
             **MOCK_CATALOG,
             "links": [
-                {"rel": "child", "href": "./first/collection.json"},
-                {"rel": "child", "href": "./second/collection.json"},
+                {"rel": "child", "href": "./noaa-gfs-forecast/collection.json"},
+                {"rel": "child", "href": "./other-dataset/collection.json"},
             ],
         }
+        return other_url, {
+            _CATALOG_URL: catalog,
+            _COLLECTION_URL: MOCK_COLLECTION,
+            other_url: {**MOCK_COLLECTION, "id": "other-dataset"},
+        }
+
+    def test_parses_every_dataset(self, mocker):
+        _, responses = self._two_dataset_catalog()
+        _serve(mocker, responses)
+
+        result = stac.load_catalog()
+
+        assert list(result) == ["noaa-gfs-forecast", "other-dataset"]
+        assert result["noaa-gfs-forecast"]["icechunk"]["region"] == "us-west-2"
+
+    def test_gathers_every_failed_fetch_into_one_error(self, mocker):
+        other_url, responses = self._two_dataset_catalog()
 
         def fetch(url):
-            if url == _CATALOG_URL:
-                return catalog
-            raise CatalogFetchError(
-                f"Failed to fetch {url}", urls=(url,), attempts=stac._MAX_ATTEMPTS
-            )
+            if url != _CATALOG_URL:
+                raise CatalogFetchError(
+                    f"Failed to fetch {url}", urls=(url,), attempts=stac._MAX_ATTEMPTS
+                )
+            return responses[url]
 
         mocker.patch.object(stac, "_fetch_json", side_effect=fetch)
         with pytest.raises(CatalogFetchError) as excinfo:
             stac.load_catalog()
-        # urls is a tuple of every failed collection URL (order not guaranteed
-        # because as_completed schedules them).
-        assert set(excinfo.value.urls) == {
-            "https://stac.dynamical.org/first/collection.json",
-            "https://stac.dynamical.org/second/collection.json",
+        assert excinfo.value.urls == (_COLLECTION_URL, other_url)
+        assert excinfo.value.attempts == stac._MAX_ATTEMPTS
+
+    def test_returned_configs_are_copies_of_the_cache(self, mocker):
+        _, responses = self._two_dataset_catalog()
+        _serve(mocker, responses)
+
+        stac.load_catalog()["noaa-gfs-forecast"]["icechunk"]["region"] = "mars"
+
+        assert stac._load_dataset("noaa-gfs-forecast")["icechunk"]["region"] == (
+            "us-west-2"
+        )
+
+    def test_remains_importable_from_package(self):
+        assert dynamical_catalog.load_catalog is stac.load_catalog
+
+    def test_raises_if_any_collection_cannot_be_parsed(self, mocker):
+        other_url, responses = self._two_dataset_catalog()
+        responses[other_url] = {
+            "id": "other-dataset",
+            "assets": {"icechunk": {"href": "ftp://bucket/prefix/"}},
         }
+        _serve(mocker, responses)
+        with pytest.raises(InvalidCatalogError, match="other-dataset"):
+            stac.load_catalog()
+        # ...while the dataset that parses is still usable on its own.
+        assert stac._load_dataset("noaa-gfs-forecast")["id"] == "noaa-gfs-forecast"
 
 
 class TestClearCache:
@@ -894,8 +975,12 @@ class TestClearCache:
         )
         stac.load_catalog()
         call_count_after_first = mock_fetch.call_count
+        assert stac._collection_urls
+        assert stac._datasets
 
         stac.clear_cache()
+        assert stac._collection_urls is None
+        assert stac._datasets == {}
         stac.load_catalog()
 
         # Should have fetched again after clearing

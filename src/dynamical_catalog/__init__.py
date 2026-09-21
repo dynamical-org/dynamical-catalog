@@ -11,7 +11,15 @@ if TYPE_CHECKING:
     import xarray as xr
     from zarr.abc.store import Store
 
-from dynamical_catalog._stac import clear_cache, load_catalog, set_identifier
+from dynamical_catalog._stac import (
+    _load_dataset,
+    _load_root,
+    clear_cache,
+    set_identifier,
+)
+
+# Not public API, but it has always been importable from the package.
+from dynamical_catalog._stac import load_catalog as load_catalog
 from dynamical_catalog.exceptions import (
     CatalogFetchError,
     DatasetOpenError,
@@ -45,8 +53,10 @@ def identify(identifier: str | None) -> None:
 def get_store(dataset_id: str) -> Store:
     """Get a zarr Store for a dynamical.org dataset's icechunk repository.
 
-    On the first call (per process) this fetches the STAC catalog from
-    dynamical.org; subsequent calls reuse the in-process cache.
+    This fetches the root STAC catalog from dynamical.org on the first call (per
+    process) and this dataset's collection the first time it is asked for; both
+    are cached in-process, so only a repeat call for the same dataset needs no
+    catalog request.
 
     Args:
         dataset_id: Dataset identifier (e.g. ``"noaa-gfs-forecast"``).
@@ -75,8 +85,10 @@ def get_repository(dataset_id: str) -> icechunk.Repository:
     ``readonly_session()`` — as needed for e.g. monitoring dataset publication.
     Virtual chunk containers are authorized so reads resolve their source chunks.
 
-    On the first call (per process) this fetches the STAC catalog from
-    dynamical.org; subsequent calls reuse the in-process cache.
+    This fetches the root STAC catalog from dynamical.org on the first call (per
+    process) and this dataset's collection the first time it is asked for; both
+    are cached in-process, so only a repeat call for the same dataset needs no
+    catalog request.
 
     Args:
         dataset_id: Dataset identifier (e.g. ``"noaa-gfs-forecast"``).
@@ -98,8 +110,10 @@ def get_repository(dataset_id: str) -> icechunk.Repository:
 def open(dataset_id: str, **kwargs: Any) -> xr.Dataset:
     """Open a dynamical.org dataset by ID as an :class:`xarray.Dataset`.
 
-    On the first call (per process) this fetches the STAC catalog from
-    dynamical.org; subsequent calls reuse the in-process cache.
+    This fetches the root STAC catalog from dynamical.org on the first call (per
+    process) and this dataset's collection the first time it is asked for; both
+    are cached in-process, so only a repeat call for the same dataset needs no
+    catalog request.
 
     Args:
         dataset_id: Dataset identifier (e.g. ``"noaa-gfs-forecast"``).
@@ -125,23 +139,25 @@ def open(dataset_id: str, **kwargs: Any) -> xr.Dataset:
 def list() -> list[str]:  # type: ignore[valid-type]
     """List available dataset IDs, sorted alphabetically.
 
-    On the first call (per process) this fetches the STAC catalog from
-    dynamical.org; subsequent calls reuse the in-process cache.
+    On the first call (per process) this fetches the root STAC catalog from
+    dynamical.org; subsequent calls reuse the in-process cache. No dataset's
+    collection is fetched.
 
     Returns:
-        Sorted list of dataset IDs.
+        Sorted list of dataset IDs. Datasets are validated only when opened,
+        so this can include one that needs a newer dynamical-catalog to open.
 
     Raises:
         CatalogFetchError: Fetching the STAC catalog failed.
         InvalidCatalogError: The catalog response was reachable but malformed.
     """
-    return sorted(load_catalog().keys())
+    return sorted(_load_root())
 
 
 def _resolve(dataset_id: str) -> dict[str, Any]:
-    datasets = load_catalog()
+    datasets = _load_root()
     if dataset_id in datasets:
-        return datasets[dataset_id]
+        return _load_dataset(dataset_id)
     # Underscore form is deprecated but still accepted when it resolves to a
     # real id. Only warn on resolved hits — a typo with underscores should
     # surface as UnknownDatasetError, not a deprecation notice.
@@ -155,8 +171,8 @@ def _resolve(dataset_id: str) -> dict[str, Any]:
                 DeprecationWarning,
                 stacklevel=3,
             )
-            return datasets[normalized_id]
-    available = ", ".join(sorted(datasets.keys()))
+            return _load_dataset(normalized_id)
+    available = ", ".join(sorted(datasets))
     raise UnknownDatasetError(f"Unknown dataset {dataset_id!r}. Available: {available}")
 
 
