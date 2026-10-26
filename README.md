@@ -42,11 +42,11 @@ repo = dynamical_catalog.get_repository("noaa-gfs-forecast")
 for snapshot in repo.ancestry(branch="main"):
     print(snapshot.written_at, snapshot.message)
 
-# On a flaky network, retry storage requests with a longer backoff. The
-# repository's storage settings also apply to a virtual dataset's source chunks.
+# On a flaky network, retry storage requests more times. The repository's
+# storage settings also apply to a virtual dataset's source chunks.
 import icechunk
 
-retries = icechunk.StorageRetriesSettings(initial_backoff_ms=1000, max_backoff_ms=10000)
+retries = icechunk.StorageRetriesSettings(max_tries=20)
 ds = dynamical_catalog.open(
     "noaa-gfs-forecast",
     repository_config=icechunk.RepositoryConfig(
