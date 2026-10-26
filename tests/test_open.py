@@ -55,6 +55,7 @@ class TestGetStoreMocked:
         )
         mock_icechunk.Repository.open.assert_called_once_with(
             mock_icechunk.s3_storage.return_value,
+            config=None,
             authorize_virtual_chunk_access=None,
         )
         mock_repo = mock_icechunk.Repository.open.return_value
@@ -87,6 +88,7 @@ class TestGetStoreMocked:
         )
         mock_icechunk.Repository.open.assert_called_once_with(
             mock_icechunk.s3_storage.return_value,
+            config=None,
             authorize_virtual_chunk_access=mock_icechunk.containers_credentials.return_value,
         )
 
@@ -110,6 +112,7 @@ class TestGetStoreMocked:
         mock_icechunk.containers_credentials.assert_not_called()
         mock_icechunk.Repository.open.assert_called_once_with(
             mock_icechunk.s3_storage.return_value,
+            config=None,
             authorize_virtual_chunk_access=None,
         )
 
@@ -134,6 +137,7 @@ class TestGetStoreMocked:
         mock_icechunk.containers_credentials.assert_not_called()
         mock_icechunk.Repository.open.assert_called_once_with(
             mock_icechunk.s3_storage.return_value,
+            config=None,
             authorize_virtual_chunk_access=None,
         )
 
@@ -159,6 +163,7 @@ class TestGetStoreHttp:
         mock_icechunk.s3_storage.assert_not_called()
         mock_icechunk.Repository.open.assert_called_once_with(
             mock_icechunk.http_storage.return_value,
+            config=None,
             authorize_virtual_chunk_access=None,
         )
         mock_repo = mock_icechunk.Repository.open.return_value
@@ -262,6 +267,7 @@ class TestGetStoreObjectStores:
         )
         mock_icechunk.Repository.open.assert_called_once_with(
             mock_icechunk.gcs_storage.return_value,
+            config=None,
             authorize_virtual_chunk_access=None,
         )
         mock_repo = mock_icechunk.Repository.open.return_value
@@ -289,6 +295,7 @@ class TestGetStoreObjectStores:
         )
         mock_icechunk.Repository.open.assert_called_once_with(
             mock_icechunk.azure_storage.return_value,
+            config=None,
             authorize_virtual_chunk_access=None,
         )
 
@@ -366,6 +373,7 @@ class TestGetRepository:
         )
         mock_icechunk.Repository.open.assert_called_once_with(
             mock_icechunk.s3_storage.return_value,
+            config=None,
             authorize_virtual_chunk_access=None,
         )
         assert repo is mock_icechunk.Repository.open.return_value
@@ -394,7 +402,47 @@ class TestGetRepository:
         )
         mock_icechunk.Repository.open.assert_called_once_with(
             mock_icechunk.s3_storage.return_value,
+            config=None,
             authorize_virtual_chunk_access=mock_icechunk.containers_credentials.return_value,
+        )
+
+    @patch("dynamical_catalog._open.icechunk")
+    def test_passes_repository_config(self, mock_icechunk):
+        data = _with_containers([])
+        config = MagicMock(name="repository_config")
+
+        _get_repository(data, repository_config=config)
+
+        mock_icechunk.Repository.open.assert_called_once_with(
+            mock_icechunk.s3_storage.return_value,
+            config=config,
+            authorize_virtual_chunk_access=None,
+        )
+
+    @patch("dynamical_catalog._open.icechunk")
+    def test_get_store_passes_repository_config(self, mock_icechunk):
+        config = MagicMock(name="repository_config")
+
+        _get_store(_with_containers([]), repository_config=config)
+
+        assert mock_icechunk.Repository.open.call_args.kwargs["config"] is config
+
+    @patch("dynamical_catalog._open.xr")
+    @patch("dynamical_catalog._open.icechunk")
+    def test_open_dataset_passes_repository_config_not_to_xarray(
+        self, mock_icechunk, mock_xr
+    ):
+        config = MagicMock(name="repository_config")
+
+        _open_dataset(
+            _with_containers([]), repository_config=config, chunks={"time": 1}
+        )
+
+        assert mock_icechunk.Repository.open.call_args.kwargs["config"] is config
+        mock_xr.open_zarr.assert_called_once_with(
+            mock_icechunk.Repository.open.return_value.readonly_session.return_value.store,
+            chunks={"time": 1},
+            consolidated=False,
         )
 
     @patch("dynamical_catalog._open.icechunk")
@@ -479,6 +527,33 @@ class TestGetStoreReal:
 
         ds = _open_dataset(data)
         assert isinstance(ds, xr.Dataset)
+        assert "values" in ds.data_vars
+
+    def test_open_dataset_accepts_a_real_repository_config(
+        self, local_repo_path, mocker
+    ):
+        mocker.patch(
+            "dynamical_catalog._open.icechunk.s3_storage",
+            side_effect=lambda **_: icechunk.local_filesystem_storage(local_repo_path),
+        )
+        data = {
+            "id": "test",
+            "icechunk": {
+                "type": "s3",
+                "bucket": "b",
+                "prefix": "p/",
+                "region": "us-west-2",
+            },
+        }
+        config = icechunk.RepositoryConfig(
+            storage=icechunk.StorageSettings(
+                retries=icechunk.StorageRetriesSettings(
+                    max_tries=3, initial_backoff_ms=10, max_backoff_ms=20
+                )
+            )
+        )
+
+        ds = _open_dataset(data, repository_config=config)
         assert "values" in ds.data_vars
 
 
@@ -599,7 +674,7 @@ class TestOpenDataset:
 
         result = _open_dataset(data)
 
-        mock_get_store.assert_called_once_with(data)
+        mock_get_store.assert_called_once_with(data, None)
         mock_xr.open_zarr.assert_called_once_with(mock_store, consolidated=False)
         assert result is mock_xr.open_zarr.return_value
 

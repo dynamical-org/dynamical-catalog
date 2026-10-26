@@ -59,7 +59,10 @@ def _container_credentials(container: dict[str, str]) -> Any:
     raise ValueError(f"Unsupported virtual chunk container type {container_type!r}")
 
 
-def _get_repository(dataset_data: dict[str, Any]) -> icechunk.Repository:
+def _get_repository(
+    dataset_data: dict[str, Any],
+    repository_config: icechunk.RepositoryConfig | None = None,
+) -> icechunk.Repository:
     config = dataset_data["icechunk"]
     storage = _build_storage(config)
     # A virtual dataset's chunks are byte-range references into public source
@@ -76,7 +79,9 @@ def _get_repository(dataset_data: dict[str, Any]) -> icechunk.Repository:
     dataset_id = dataset_data.get("id")
     try:
         return icechunk.Repository.open(
-            storage, authorize_virtual_chunk_access=authorize
+            storage,
+            config=repository_config,
+            authorize_virtual_chunk_access=authorize,
         )
     except icechunk.IcechunkError as e:
         raise DatasetOpenError(
@@ -85,8 +90,11 @@ def _get_repository(dataset_data: dict[str, Any]) -> icechunk.Repository:
         ) from e
 
 
-def _get_store(dataset_data: dict[str, Any]) -> Store:
-    repo = _get_repository(dataset_data)
+def _get_store(
+    dataset_data: dict[str, Any],
+    repository_config: icechunk.RepositoryConfig | None = None,
+) -> Store:
+    repo = _get_repository(dataset_data, repository_config)
     dataset_id = dataset_data.get("id")
     try:
         return repo.readonly_session("main").store
@@ -97,11 +105,15 @@ def _get_store(dataset_data: dict[str, Any]) -> Store:
         ) from e
 
 
-def _open_dataset(dataset_data: dict[str, Any], **kwargs: Any) -> xr.Dataset:
+def _open_dataset(
+    dataset_data: dict[str, Any],
+    repository_config: icechunk.RepositoryConfig | None = None,
+    **kwargs: Any,
+) -> xr.Dataset:
     # icechunk manages its own metadata; zarr's consolidated metadata doesn't apply.
     kwargs.setdefault("consolidated", False)
     dataset_id = dataset_data.get("id")
-    store = _get_store(dataset_data)
+    store = _get_store(dataset_data, repository_config)
     try:
         return xr.open_zarr(store, **kwargs)
     except Exception as e:

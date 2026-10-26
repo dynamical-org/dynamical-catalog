@@ -50,7 +50,9 @@ def identify(identifier: str | None) -> None:
     set_identifier(identifier)
 
 
-def get_store(dataset_id: str) -> Store:
+def get_store(
+    dataset_id: str, *, repository_config: icechunk.RepositoryConfig | None = None
+) -> Store:
     """Get a zarr Store for a dynamical.org dataset's icechunk repository.
 
     This fetches the root STAC catalog from dynamical.org on the first call (per
@@ -60,6 +62,11 @@ def get_store(dataset_id: str) -> Store:
 
     Args:
         dataset_id: Dataset identifier (e.g. ``"noaa-gfs-forecast"``).
+        repository_config: Optional :class:`icechunk.RepositoryConfig` merged
+            over the repository's persisted config when it is opened, e.g. to
+            change storage retry settings with
+            ``icechunk.StorageSettings(retries=icechunk.StorageRetriesSettings(...))``.
+            The storage settings also govern virtual chunk fetches.
 
     Returns:
         A read-only :class:`zarr.abc.store.Store` backed by the dataset's
@@ -73,10 +80,12 @@ def get_store(dataset_id: str) -> Store:
     """
     from dynamical_catalog._open import _get_store
 
-    return _get_store(_resolve(dataset_id))
+    return _get_store(_resolve(dataset_id), repository_config=repository_config)
 
 
-def get_repository(dataset_id: str) -> icechunk.Repository:
+def get_repository(
+    dataset_id: str, *, repository_config: icechunk.RepositoryConfig | None = None
+) -> icechunk.Repository:
     """Open a dynamical.org dataset's icechunk repository read-only and anonymously.
 
     Lower-level than :func:`get_store` and :func:`open`, which collapse the
@@ -92,6 +101,11 @@ def get_repository(dataset_id: str) -> icechunk.Repository:
 
     Args:
         dataset_id: Dataset identifier (e.g. ``"noaa-gfs-forecast"``).
+        repository_config: Optional :class:`icechunk.RepositoryConfig` merged
+            over the repository's persisted config when it is opened, e.g. to
+            change storage retry settings with
+            ``icechunk.StorageSettings(retries=icechunk.StorageRetriesSettings(...))``.
+            The storage settings also govern virtual chunk fetches.
 
     Returns:
         A read-only :class:`icechunk.Repository`.
@@ -104,10 +118,15 @@ def get_repository(dataset_id: str) -> icechunk.Repository:
     """
     from dynamical_catalog._open import _get_repository
 
-    return _get_repository(_resolve(dataset_id))
+    return _get_repository(_resolve(dataset_id), repository_config=repository_config)
 
 
-def open(dataset_id: str, **kwargs: Any) -> xr.Dataset:
+def open(
+    dataset_id: str,
+    *,
+    repository_config: icechunk.RepositoryConfig | None = None,
+    **kwargs: Any,
+) -> xr.Dataset:
     """Open a dynamical.org dataset by ID as an :class:`xarray.Dataset`.
 
     This fetches the root STAC catalog from dynamical.org on the first call (per
@@ -117,6 +136,11 @@ def open(dataset_id: str, **kwargs: Any) -> xr.Dataset:
 
     Args:
         dataset_id: Dataset identifier (e.g. ``"noaa-gfs-forecast"``).
+        repository_config: Optional :class:`icechunk.RepositoryConfig` merged
+            over the repository's persisted config when it is opened, e.g. to
+            change storage retry settings with
+            ``icechunk.StorageSettings(retries=icechunk.StorageRetriesSettings(...))``.
+            The storage settings also govern virtual chunk fetches.
         **kwargs: Passed through to :func:`xarray.open_zarr`.
 
     Returns:
@@ -133,7 +157,9 @@ def open(dataset_id: str, **kwargs: Any) -> xr.Dataset:
     """
     from dynamical_catalog._open import _open_dataset
 
-    return _open_dataset(_resolve(dataset_id), **kwargs)
+    return _open_dataset(
+        _resolve(dataset_id), repository_config=repository_config, **kwargs
+    )
 
 
 def list() -> list[str]:  # type: ignore[valid-type]

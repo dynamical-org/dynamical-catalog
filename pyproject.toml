@@ -1,6 +1,6 @@
 [project]
 name = "dynamical-catalog"
-version = "1.0.1"
+version = "1.1.0"
 description = "Load dynamical.org weather datasets in one line"
 readme = "README.md"
 license = "MIT"

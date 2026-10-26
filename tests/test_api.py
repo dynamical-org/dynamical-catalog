@@ -30,7 +30,9 @@ class TestOpen:
     def test_open_by_dataset_id(self, populated_catalog, mocker):
         mock_open = mocker.patch("dynamical_catalog._open._open_dataset")
         dynamical_catalog.open("noaa-gfs-forecast")
-        mock_open.assert_called_once_with(populated_catalog["noaa-gfs-forecast"])
+        mock_open.assert_called_once_with(
+            populated_catalog["noaa-gfs-forecast"], repository_config=None
+        )
 
     def test_open_underscore_id_resolves_with_deprecation_warning(
         self, populated_catalog, mocker
@@ -38,7 +40,9 @@ class TestOpen:
         mock_open = mocker.patch("dynamical_catalog._open._open_dataset")
         with pytest.warns(DeprecationWarning, match="Underscores in dataset ids"):
             dynamical_catalog.open("noaa_gfs_forecast")
-        mock_open.assert_called_once_with(populated_catalog["noaa-gfs-forecast"])
+        mock_open.assert_called_once_with(
+            populated_catalog["noaa-gfs-forecast"], repository_config=None
+        )
 
     def test_open_underscore_unknown_id_raises_without_deprecation_warning(
         self, populated_catalog
@@ -54,7 +58,21 @@ class TestOpen:
         mock_open = mocker.patch("dynamical_catalog._open._open_dataset")
         dynamical_catalog.open("noaa-gfs-forecast", chunks={"time": 1})
         mock_open.assert_called_once_with(
-            populated_catalog["noaa-gfs-forecast"], chunks={"time": 1}
+            populated_catalog["noaa-gfs-forecast"],
+            repository_config=None,
+            chunks={"time": 1},
+        )
+
+    def test_open_passes_repository_config(self, populated_catalog, mocker):
+        mock_open = mocker.patch("dynamical_catalog._open._open_dataset")
+        config = mocker.sentinel.repository_config
+        dynamical_catalog.open(
+            "noaa-gfs-forecast", repository_config=config, chunks={"time": 1}
+        )
+        mock_open.assert_called_once_with(
+            populated_catalog["noaa-gfs-forecast"],
+            repository_config=config,
+            chunks={"time": 1},
         )
 
     def test_open_unknown_raises_unknown_dataset_error(self, populated_catalog):
@@ -94,7 +112,9 @@ class TestOpen:
             "https://stac.dynamical.org/catalog.json",
             "https://stac.dynamical.org/noaa-gfs-forecast/collection.json",
         ]
-        mock_open.assert_called_with(sample_datasets["noaa-gfs-forecast"])
+        mock_open.assert_called_with(
+            sample_datasets["noaa-gfs-forecast"], repository_config=None
+        )
 
     def test_open_ignores_a_collection_this_client_cannot_read(
         self, sample_datasets, served_catalog, mocker
@@ -104,7 +124,9 @@ class TestOpen:
 
         dynamical_catalog.open("noaa-gfs-forecast")
 
-        mock_open.assert_called_once_with(sample_datasets["noaa-gfs-forecast"])
+        mock_open.assert_called_once_with(
+            sample_datasets["noaa-gfs-forecast"], repository_config=None
+        )
         assert "future-dataset" in dynamical_catalog.list()
 
     def test_open_unsupported_collection_raises_with_upgrade_hint(self, served_catalog):
@@ -132,7 +154,9 @@ class TestOpen:
 
         dynamical_catalog.open("noaa-gfs-forecast")
 
-        mock_open.assert_called_once_with(sample_datasets["noaa-gfs-forecast"])
+        mock_open.assert_called_once_with(
+            sample_datasets["noaa-gfs-forecast"], repository_config=None
+        )
 
     def test_a_failed_open_is_not_cached(self, sample_datasets, served_catalog, mocker):
         url = "https://stac.dynamical.org/noaa-gfs-forecast/collection.json"
@@ -144,14 +168,18 @@ class TestOpen:
         served_catalog.responses[url] = good
         mock_open = mocker.patch("dynamical_catalog._open._open_dataset")
         dynamical_catalog.open("noaa-gfs-forecast")
-        mock_open.assert_called_once_with(sample_datasets["noaa-gfs-forecast"])
+        mock_open.assert_called_once_with(
+            sample_datasets["noaa-gfs-forecast"], repository_config=None
+        )
 
 
 class TestGetStore:
     def test_get_store_by_dataset_id(self, populated_catalog, mocker):
         mock_get_store = mocker.patch("dynamical_catalog._open._get_store")
         dynamical_catalog.get_store("noaa-gfs-forecast")
-        mock_get_store.assert_called_once_with(populated_catalog["noaa-gfs-forecast"])
+        mock_get_store.assert_called_once_with(
+            populated_catalog["noaa-gfs-forecast"], repository_config=None
+        )
 
     def test_get_store_underscore_id_resolves_with_deprecation_warning(
         self, populated_catalog, mocker
@@ -159,7 +187,9 @@ class TestGetStore:
         mock_get_store = mocker.patch("dynamical_catalog._open._get_store")
         with pytest.warns(DeprecationWarning, match="Underscores in dataset ids"):
             dynamical_catalog.get_store("noaa_gfs_forecast")
-        mock_get_store.assert_called_once_with(populated_catalog["noaa-gfs-forecast"])
+        mock_get_store.assert_called_once_with(
+            populated_catalog["noaa-gfs-forecast"], repository_config=None
+        )
 
     def test_get_store_fetches_only_the_root_and_that_collection(
         self, sample_datasets, served_catalog, mocker
@@ -169,14 +199,26 @@ class TestGetStore:
         dynamical_catalog.get_store("noaa-gfs-forecast")
 
         assert served_catalog.call_count == 2
-        mock_get_store.assert_called_once_with(sample_datasets["noaa-gfs-forecast"])
+        mock_get_store.assert_called_once_with(
+            sample_datasets["noaa-gfs-forecast"], repository_config=None
+        )
+
+    def test_get_store_passes_repository_config(self, populated_catalog, mocker):
+        mock_get_store = mocker.patch("dynamical_catalog._open._get_store")
+        config = mocker.sentinel.repository_config
+        dynamical_catalog.get_store("noaa-gfs-forecast", repository_config=config)
+        mock_get_store.assert_called_once_with(
+            populated_catalog["noaa-gfs-forecast"], repository_config=config
+        )
 
 
 class TestGetRepository:
     def test_get_repository_by_dataset_id(self, populated_catalog, mocker):
         mock_get_repo = mocker.patch("dynamical_catalog._open._get_repository")
         dynamical_catalog.get_repository("noaa-gfs-forecast")
-        mock_get_repo.assert_called_once_with(populated_catalog["noaa-gfs-forecast"])
+        mock_get_repo.assert_called_once_with(
+            populated_catalog["noaa-gfs-forecast"], repository_config=None
+        )
 
     def test_get_repository_underscore_id_resolves_with_deprecation_warning(
         self, populated_catalog, mocker
@@ -184,7 +226,9 @@ class TestGetRepository:
         mock_get_repo = mocker.patch("dynamical_catalog._open._get_repository")
         with pytest.warns(DeprecationWarning, match="Underscores in dataset ids"):
             dynamical_catalog.get_repository("noaa_gfs_forecast")
-        mock_get_repo.assert_called_once_with(populated_catalog["noaa-gfs-forecast"])
+        mock_get_repo.assert_called_once_with(
+            populated_catalog["noaa-gfs-forecast"], repository_config=None
+        )
 
     def test_get_repository_fetches_only_the_root_and_that_collection(
         self, sample_datasets, served_catalog, mocker
@@ -194,7 +238,17 @@ class TestGetRepository:
         dynamical_catalog.get_repository("noaa-gfs-forecast")
 
         assert served_catalog.call_count == 2
-        mock_get_repo.assert_called_once_with(sample_datasets["noaa-gfs-forecast"])
+        mock_get_repo.assert_called_once_with(
+            sample_datasets["noaa-gfs-forecast"], repository_config=None
+        )
+
+    def test_get_repository_passes_repository_config(self, populated_catalog, mocker):
+        mock_get_repo = mocker.patch("dynamical_catalog._open._get_repository")
+        config = mocker.sentinel.repository_config
+        dynamical_catalog.get_repository("noaa-gfs-forecast", repository_config=config)
+        mock_get_repo.assert_called_once_with(
+            populated_catalog["noaa-gfs-forecast"], repository_config=config
+        )
 
 
 class TestList:
