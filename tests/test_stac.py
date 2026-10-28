@@ -61,8 +61,20 @@ def _mock_urlopen_response(mocker, body: bytes):
     mock_urlopen = mocker.patch.object(stac.urllib.request, "urlopen")
     mock_urlopen.return_value.__enter__ = lambda s: s
     mock_urlopen.return_value.__exit__ = lambda *a: None
-    mock_urlopen.return_value.read.return_value = body
+    mock_urlopen.return_value.read.side_effect = _chunks(body)
     return mock_urlopen
+
+
+def _chunks(body: bytes):
+    """A read(n) side effect: the whole body, then end of stream, for each fetch."""
+
+    def read(_size: int = -1) -> bytes:
+        nonlocal remaining
+        chunk, remaining = remaining, b""
+        return chunk
+
+    remaining = body
+    return read
 
 
 class TestFetchJson:
@@ -179,7 +191,7 @@ class TestFetchJson:
         success_response = MagicMock()
         success_response.__enter__ = lambda s: s
         success_response.__exit__ = lambda *a: None
-        success_response.read.return_value = b'{"ok": true}'
+        success_response.read.side_effect = _chunks(b'{"ok": true}')
         mocker.patch.object(
             stac.urllib.request,
             "urlopen",
@@ -191,6 +203,38 @@ class TestFetchJson:
         )
         result = stac._fetch_json("https://example.com")
         assert result == {"ok": True}
+
+    def test_slow_body_times_out_and_is_retried(self, mocker):
+        """The socket timeout applies per read, so a trickling body needs a deadline."""
+        mocker.patch.object(stac.time, "sleep")
+        clock = iter(range(0, 10_000, 15))  # each monotonic() call advances 15 s
+        mocker.patch.object(stac.time, "monotonic", lambda: next(clock))
+        slow = MagicMock()
+        slow.__enter__ = lambda s: s
+        slow.__exit__ = lambda *a: None
+        slow.read.side_effect = lambda _size=-1: b"x"
+        fast = MagicMock()
+        fast.__enter__ = lambda s: s
+        fast.__exit__ = lambda *a: None
+        fast.read.side_effect = _chunks(b'{"ok": true}')
+        mock_urlopen = mocker.patch.object(
+            stac.urllib.request, "urlopen", side_effect=[slow, fast]
+        )
+        assert stac._fetch_json("https://example.com") == {"ok": True}
+        assert mock_urlopen.call_count == 2
+
+    def test_slow_body_on_every_attempt_raises(self, mocker):
+        mocker.patch.object(stac.time, "sleep")
+        clock = iter(range(0, 10_000, 15))
+        mocker.patch.object(stac.time, "monotonic", lambda: next(clock))
+        slow = MagicMock()
+        slow.__enter__ = lambda s: s
+        slow.__exit__ = lambda *a: None
+        slow.read.side_effect = lambda _size=-1: b"x"
+        mocker.patch.object(stac.urllib.request, "urlopen", return_value=slow)
+        with pytest.raises(CatalogFetchError, match="not complete within") as excinfo:
+            stac._fetch_json("https://example.com")
+        assert excinfo.value.attempts == stac._MAX_ATTEMPTS
 
     def test_sleeps_between_attempts(self, mocker):
         mock_sleep = mocker.patch.object(stac.time, "sleep")

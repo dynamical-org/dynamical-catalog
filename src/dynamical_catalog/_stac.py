@@ -25,6 +25,10 @@ TEST_STAC_CATALOG_URL = "https://stac-test.dynamical.org/catalog.json"
 CATALOG_URL_ENV_VAR = "DYNAMICAL_STAC_CATALOG_URL"
 
 _TIMEOUT_SECONDS = 10
+# Bounds one whole attempt, including a body that trickles in: the socket timeout
+# above applies per read, so a slow response would otherwise never time out.
+_ATTEMPT_DEADLINE_SECONDS = 20
+_READ_CHUNK_BYTES = 64 * 1024
 _MAX_ATTEMPTS = 3
 _RETRY_BACKOFF_SECONDS = 1.0
 # Collection URL by dataset id, from the root catalog's child links.
@@ -69,13 +73,25 @@ _RETRIABLE_TRANSIENT_ERRORS = (
 )
 
 
+def _read_before(resp: Any, deadline: float) -> bytes:
+    chunks = []
+    while chunk := resp.read(_READ_CHUNK_BYTES):
+        chunks.append(chunk)
+        if time.monotonic() > deadline:
+            raise TimeoutError(
+                f"response not complete within {_ATTEMPT_DEADLINE_SECONDS} s"
+            )
+    return b"".join(chunks)
+
+
 def _fetch_json(url: str) -> Any:
     req = urllib.request.Request(url, headers={"User-Agent": _user_agent()})
     last_error: Exception | None = None
     for attempt in range(_MAX_ATTEMPTS):
         try:
+            deadline = time.monotonic() + _ATTEMPT_DEADLINE_SECONDS
             with urllib.request.urlopen(req, timeout=_TIMEOUT_SECONDS) as resp:
-                body = resp.read()
+                body = _read_before(resp, deadline)
         except urllib.error.HTTPError as e:
             # 4xx won't change between attempts and fails fast, except:
             # - 429 Too Many Requests, which is inherently transient
