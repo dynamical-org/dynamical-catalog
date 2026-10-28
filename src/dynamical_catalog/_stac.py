@@ -83,8 +83,8 @@ def _read_url_before_deadline(req: urllib.request.Request) -> bytes:
     """Fetch `req`, giving up once the attempt deadline passes. The socket timeout
     applies to each read, so connecting, headers, chunked framing or a slow body
     could otherwise run on indefinitely. A daemon thread does the fetch so an
-    abandoned one can't hold up interpreter exit; it ends at its next socket
-    timeout or when the response completes."""
+    abandoned one can't hold up interpreter exit. Abandoning isn't cancelling:
+    the thread keeps its socket until its own I/O finishes or fails."""
     outcome: list[tuple[bool, Any]] = []
 
     def fetch() -> None:
