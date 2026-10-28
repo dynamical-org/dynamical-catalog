@@ -68,12 +68,12 @@ def _mock_urlopen_response(mocker, body: bytes):
 
 
 def _response(body: bytes) -> MagicMock:
-    """A urlopen response whose read1(n) streams body in chunks of at most n bytes."""
+    """A urlopen response whose read(n) streams body in chunks of at most n bytes."""
     stream = io.BytesIO(body)
     response = MagicMock()
     response.__enter__ = lambda s: s
     response.__exit__ = lambda *a: None
-    response.read1.side_effect = lambda n=-1: stream.read(n)
+    response.read.side_effect = lambda n=-1: stream.read(n)
     response.length = None
     return response
 
@@ -1078,14 +1078,26 @@ def _ok(handler):
 
 
 def _trickle(handler):
-    body = b'{"ok": true}'
+    # Far slower than the patched deadline: 1.5 s for the whole body.
+    body = b'{"ok": true}' + b" " * 18
     handler.send_response(200)
     handler.send_header("Content-Length", str(len(body)))
     handler.end_headers()
     for byte in body:
         handler.wfile.write(bytes([byte]))
         handler.wfile.flush()
-        time.sleep(0.04)
+        time.sleep(0.05)
+
+
+def _slow_chunked_trailer(handler):
+    handler.send_response(200)
+    handler.send_header("Transfer-Encoding", "chunked")
+    handler.end_headers()
+    handler.wfile.write(b"2\r\n{}\r\n0\r\n")
+    for byte in b"X-Trailer: slow-to-arrive\r\n\r\n":
+        handler.wfile.write(bytes([byte]))
+        handler.wfile.flush()
+        time.sleep(0.05)
 
 
 def _truncated(handler):
@@ -1104,23 +1116,34 @@ class TestFetchJsonOverHttp:
         mocker.patch.object(stac, "_TIMEOUT_SECONDS", 0.2)
         mocker.patch.object(stac, "_RETRY_BACKOFF_SECONDS", 0)
 
-    def test_trickling_body_is_cut_off_near_the_deadline_and_retried(self):
+    def test_trickling_body_is_abandoned_at_the_deadline_and_retried(self):
         with _Server([_trickle, _ok]) as server:
             start = time.monotonic()
             assert stac._fetch_json(server.url) == {"ok": True}
             elapsed = time.monotonic() - start
         assert server.requests == 2
-        # Abandoned within deadline plus one socket wait, not after the whole body.
-        assert elapsed < 0.15 + 0.2 + 0.2
+        # The trickle takes 1.5 s; the attempt is abandoned at the 0.15 s deadline.
+        assert elapsed < 0.6
+
+    def test_slow_chunked_framing_is_abandoned_at_the_deadline(self):
+        with _Server([_slow_chunked_trailer, _ok]) as server:
+            start = time.monotonic()
+            assert stac._fetch_json(server.url) == {"ok": True}
+            elapsed = time.monotonic() - start
+        assert server.requests == 2
+        assert elapsed < 0.6
 
     def test_trickling_body_on_every_attempt_raises(self):
         with _Server([_trickle]) as server:
+            start = time.monotonic()
             with pytest.raises(
                 CatalogFetchError, match="not complete within"
             ) as excinfo:
                 stac._fetch_json(server.url)
+            elapsed = time.monotonic() - start
         assert server.requests == stac._MAX_ATTEMPTS
         assert excinfo.value.attempts == stac._MAX_ATTEMPTS
+        assert elapsed < stac._MAX_ATTEMPTS * 0.15 + 0.5
 
     def test_truncated_body_is_retried(self):
         with _Server([_truncated, _ok]) as server:

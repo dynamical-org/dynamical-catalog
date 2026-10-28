@@ -7,6 +7,7 @@ import copy
 import http.client
 import json
 import os
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -25,10 +26,9 @@ TEST_STAC_CATALOG_URL = "https://stac-test.dynamical.org/catalog.json"
 CATALOG_URL_ENV_VAR = "DYNAMICAL_STAC_CATALOG_URL"
 
 _TIMEOUT_SECONDS = 10
-# Bounds one whole attempt, including a body that trickles in: the socket timeout
-# above applies per read, so a slow response would otherwise never time out.
+# Bounds one whole attempt: the socket timeout above applies per read, so a
+# response that trickles in would otherwise never time out.
 _ATTEMPT_DEADLINE_SECONDS = 20
-_READ_CHUNK_BYTES = 64 * 1024
 _MAX_ATTEMPTS = 3
 _RETRY_BACKOFF_SECONDS = 1.0
 # Collection URL by dataset id, from the root catalog's child links.
@@ -73,26 +73,37 @@ _RETRIABLE_TRANSIENT_ERRORS = (
 )
 
 
-def _read_before(resp: Any, deadline: float) -> bytes:
-    """Read the whole body, giving up once `deadline` passes. read1 returns after a
-    single receive, so each wait is bounded by the socket timeout; a plain read(n)
-    can keep receiving well past the deadline."""
-    chunks = []
-    while True:
-        if time.monotonic() > deadline:
-            raise TimeoutError(
-                f"response not complete within {_ATTEMPT_DEADLINE_SECONDS} s"
-            )
-        chunk = resp.read1(_READ_CHUNK_BYTES)
-        if not chunk:
-            break
-        chunks.append(chunk)
-    body = b"".join(chunks)
-    remaining = getattr(resp, "length", None)
-    if isinstance(remaining, int) and remaining > 0:
-        # A sized read doesn't flag a body cut short of its Content-Length.
-        raise http.client.IncompleteRead(body, remaining)
+def _read_url(req: urllib.request.Request) -> bytes:
+    with urllib.request.urlopen(req, timeout=_TIMEOUT_SECONDS) as resp:
+        body: bytes = resp.read()
     return body
+
+
+def _read_url_before_deadline(req: urllib.request.Request) -> bytes:
+    """Fetch `req`, giving up once the attempt deadline passes. The socket timeout
+    applies to each read, so connecting, headers, chunked framing or a slow body
+    could otherwise run on indefinitely. A daemon thread does the fetch so an
+    abandoned one can't hold up interpreter exit; it ends at its next socket
+    timeout or when the response completes."""
+    outcome: list[tuple[bool, Any]] = []
+
+    def fetch() -> None:
+        try:
+            outcome.append((True, _read_url(req)))
+        except BaseException as e:  # noqa: BLE001 - re-raised in the caller
+            outcome.append((False, e))
+
+    thread = threading.Thread(target=fetch, daemon=True)
+    thread.start()
+    thread.join(_ATTEMPT_DEADLINE_SECONDS)
+    if not outcome:
+        raise TimeoutError(
+            f"response not complete within {_ATTEMPT_DEADLINE_SECONDS} s"
+        )
+    succeeded, value = outcome[0]
+    if succeeded:
+        return value  # type: ignore[no-any-return]
+    raise value
 
 
 def _fetch_json(url: str) -> Any:
@@ -100,9 +111,7 @@ def _fetch_json(url: str) -> Any:
     last_error: Exception | None = None
     for attempt in range(_MAX_ATTEMPTS):
         try:
-            deadline = time.monotonic() + _ATTEMPT_DEADLINE_SECONDS
-            with urllib.request.urlopen(req, timeout=_TIMEOUT_SECONDS) as resp:
-                body = _read_before(resp, deadline)
+            body = _read_url_before_deadline(req)
         except urllib.error.HTTPError as e:
             # 4xx won't change between attempts and fails fast, except:
             # - 429 Too Many Requests, which is inherently transient
