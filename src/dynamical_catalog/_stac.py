@@ -74,14 +74,25 @@ _RETRIABLE_TRANSIENT_ERRORS = (
 
 
 def _read_before(resp: Any, deadline: float) -> bytes:
+    """Read the whole body, giving up once `deadline` passes. read1 returns after a
+    single receive, so each wait is bounded by the socket timeout; a plain read(n)
+    can keep receiving well past the deadline."""
     chunks = []
-    while chunk := resp.read(_READ_CHUNK_BYTES):
-        chunks.append(chunk)
+    while True:
         if time.monotonic() > deadline:
             raise TimeoutError(
                 f"response not complete within {_ATTEMPT_DEADLINE_SECONDS} s"
             )
-    return b"".join(chunks)
+        chunk = resp.read1(_READ_CHUNK_BYTES)
+        if not chunk:
+            break
+        chunks.append(chunk)
+    body = b"".join(chunks)
+    remaining = getattr(resp, "length", None)
+    if isinstance(remaining, int) and remaining > 0:
+        # A sized read doesn't flag a body cut short of its Content-Length.
+        raise http.client.IncompleteRead(body, remaining)
+    return body
 
 
 def _fetch_json(url: str) -> Any:

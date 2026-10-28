@@ -1,4 +1,8 @@
 import http.client
+import http.server
+import io
+import threading
+import time
 import urllib.error
 from unittest.mock import MagicMock, call
 
@@ -57,24 +61,21 @@ MOCK_COLLECTION = {
 
 
 def _mock_urlopen_response(mocker, body: bytes):
-    """Patch urllib.request.urlopen to return a context manager yielding body."""
-    mock_urlopen = mocker.patch.object(stac.urllib.request, "urlopen")
-    mock_urlopen.return_value.__enter__ = lambda s: s
-    mock_urlopen.return_value.__exit__ = lambda *a: None
-    mock_urlopen.return_value.read.side_effect = _chunks(body)
-    return mock_urlopen
+    """Patch urlopen to return a fresh response yielding body on each call."""
+    return mocker.patch.object(
+        stac.urllib.request, "urlopen", side_effect=lambda *a, **k: _response(body)
+    )
 
 
-def _chunks(body: bytes):
-    """A read(n) side effect: the whole body, then end of stream, for each fetch."""
-
-    def read(_size: int = -1) -> bytes:
-        nonlocal remaining
-        chunk, remaining = remaining, b""
-        return chunk
-
-    remaining = body
-    return read
+def _response(body: bytes) -> MagicMock:
+    """A urlopen response whose read1(n) streams body in chunks of at most n bytes."""
+    stream = io.BytesIO(body)
+    response = MagicMock()
+    response.__enter__ = lambda s: s
+    response.__exit__ = lambda *a: None
+    response.read1.side_effect = lambda n=-1: stream.read(n)
+    response.length = None
+    return response
 
 
 class TestFetchJson:
@@ -188,10 +189,7 @@ class TestFetchJson:
 
     def test_succeeds_after_transient_failures(self, mocker):
         mocker.patch.object(stac.time, "sleep")
-        success_response = MagicMock()
-        success_response.__enter__ = lambda s: s
-        success_response.__exit__ = lambda *a: None
-        success_response.read.side_effect = _chunks(b'{"ok": true}')
+        success_response = _response(b'{"ok": true}')
         mocker.patch.object(
             stac.urllib.request,
             "urlopen",
@@ -203,38 +201,6 @@ class TestFetchJson:
         )
         result = stac._fetch_json("https://example.com")
         assert result == {"ok": True}
-
-    def test_slow_body_times_out_and_is_retried(self, mocker):
-        """The socket timeout applies per read, so a trickling body needs a deadline."""
-        mocker.patch.object(stac.time, "sleep")
-        clock = iter(range(0, 10_000, 15))  # each monotonic() call advances 15 s
-        mocker.patch.object(stac.time, "monotonic", lambda: next(clock))
-        slow = MagicMock()
-        slow.__enter__ = lambda s: s
-        slow.__exit__ = lambda *a: None
-        slow.read.side_effect = lambda _size=-1: b"x"
-        fast = MagicMock()
-        fast.__enter__ = lambda s: s
-        fast.__exit__ = lambda *a: None
-        fast.read.side_effect = _chunks(b'{"ok": true}')
-        mock_urlopen = mocker.patch.object(
-            stac.urllib.request, "urlopen", side_effect=[slow, fast]
-        )
-        assert stac._fetch_json("https://example.com") == {"ok": True}
-        assert mock_urlopen.call_count == 2
-
-    def test_slow_body_on_every_attempt_raises(self, mocker):
-        mocker.patch.object(stac.time, "sleep")
-        clock = iter(range(0, 10_000, 15))
-        mocker.patch.object(stac.time, "monotonic", lambda: next(clock))
-        slow = MagicMock()
-        slow.__enter__ = lambda s: s
-        slow.__exit__ = lambda *a: None
-        slow.read.side_effect = lambda _size=-1: b"x"
-        mocker.patch.object(stac.urllib.request, "urlopen", return_value=slow)
-        with pytest.raises(CatalogFetchError, match="not complete within") as excinfo:
-            stac._fetch_json("https://example.com")
-        assert excinfo.value.attempts == stac._MAX_ATTEMPTS
 
     def test_sleeps_between_attempts(self, mocker):
         mock_sleep = mocker.patch.object(stac.time, "sleep")
@@ -1067,3 +1033,103 @@ class TestIdentifier:
         stac.set_identifier("acme@example.com")
         stac.set_identifier(None)
         assert stac._identifier is None
+
+
+class _Server:
+    """A loopback HTTP server that answers each GET with the next scripted reply."""
+
+    def __init__(self, replies):
+        self.replies = list(replies)
+        self.requests = 0
+        handler = self._handler()
+        self.httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        self.url = f"http://127.0.0.1:{self.httpd.server_port}/collection.json"
+        self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
+
+    def _handler(self):
+        server = self
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):  # noqa: N802
+                server.requests += 1
+                reply = server.replies[min(server.requests, len(server.replies)) - 1]
+                reply(self)
+
+            def log_message(self, *args):
+                pass
+
+        return Handler
+
+    def __enter__(self):
+        self.thread.start()
+        return self
+
+    def __exit__(self, *exc):
+        self.httpd.shutdown()
+        self.httpd.server_close()
+
+
+def _ok(handler):
+    body = b'{"ok": true}'
+    handler.send_response(200)
+    handler.send_header("Content-Length", str(len(body)))
+    handler.end_headers()
+    handler.wfile.write(body)
+
+
+def _trickle(handler):
+    body = b'{"ok": true}'
+    handler.send_response(200)
+    handler.send_header("Content-Length", str(len(body)))
+    handler.end_headers()
+    for byte in body:
+        handler.wfile.write(bytes([byte]))
+        handler.wfile.flush()
+        time.sleep(0.04)
+
+
+def _truncated(handler):
+    handler.send_response(200)
+    handler.send_header("Content-Length", "100")
+    handler.end_headers()
+    handler.wfile.write(b'{"ok":')
+    handler.wfile.flush()
+    handler.close_connection = True
+
+
+class TestFetchJsonOverHttp:
+    @pytest.fixture(autouse=True)
+    def _fast(self, mocker):
+        mocker.patch.object(stac, "_ATTEMPT_DEADLINE_SECONDS", 0.15)
+        mocker.patch.object(stac, "_TIMEOUT_SECONDS", 0.2)
+        mocker.patch.object(stac, "_RETRY_BACKOFF_SECONDS", 0)
+
+    def test_trickling_body_is_cut_off_near_the_deadline_and_retried(self):
+        with _Server([_trickle, _ok]) as server:
+            start = time.monotonic()
+            assert stac._fetch_json(server.url) == {"ok": True}
+            elapsed = time.monotonic() - start
+        assert server.requests == 2
+        # Abandoned within deadline plus one socket wait, not after the whole body.
+        assert elapsed < 0.15 + 0.2 + 0.2
+
+    def test_trickling_body_on_every_attempt_raises(self):
+        with _Server([_trickle]) as server:
+            with pytest.raises(
+                CatalogFetchError, match="not complete within"
+            ) as excinfo:
+                stac._fetch_json(server.url)
+        assert server.requests == stac._MAX_ATTEMPTS
+        assert excinfo.value.attempts == stac._MAX_ATTEMPTS
+
+    def test_truncated_body_is_retried(self):
+        with _Server([_truncated, _ok]) as server:
+            assert stac._fetch_json(server.url) == {"ok": True}
+        assert server.requests == 2
+
+    def test_truncated_body_on_every_attempt_raises(self):
+        with _Server([_truncated]) as server:
+            with pytest.raises(CatalogFetchError) as excinfo:
+                stac._fetch_json(server.url)
+        assert server.requests == stac._MAX_ATTEMPTS
+        assert isinstance(excinfo.value.__cause__, http.client.IncompleteRead)
