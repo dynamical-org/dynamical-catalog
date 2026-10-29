@@ -11,6 +11,21 @@ import dynamical_catalog
 pytestmark = pytest.mark.slow
 
 
+def _assert_spatial_coords(ds: xr.Dataset, dataset_id: str) -> None:
+    has_latlon = "latitude" in ds.dims and "longitude" in ds.dims
+    has_xy = "x" in ds.dims and "y" in ds.dims
+    assert has_latlon or has_xy, f"{dataset_id} missing spatial dims"
+    for geographic_name in ("latitude", "longitude"):
+        assert any(
+            name == geographic_name
+            or coord.attrs.get("standard_name") == geographic_name
+            for name, coord in ds.coords.items()
+        ), (
+            f"{dataset_id} missing {geographic_name} coordinate "
+            "(name or CF standard_name)"
+        )
+
+
 @pytest.fixture(autouse=True)
 def fresh_catalog():
     """Ensure each test starts with a fresh catalog fetch."""
@@ -48,11 +63,7 @@ class TestDatasetStructure:
     def test_all_datasets_have_spatial_coords(self):
         for dataset_id in dynamical_catalog.list():
             ds = dynamical_catalog.open(dataset_id)
-            has_latlon = "latitude" in ds.dims and "longitude" in ds.dims
-            has_xy = "x" in ds.dims and "y" in ds.dims
-            assert has_latlon or has_xy, f"{dataset_id} missing spatial dims"
-            assert "latitude" in ds.coords, f"{dataset_id} missing latitude coord"
-            assert "longitude" in ds.coords, f"{dataset_id} missing longitude coord"
+            _assert_spatial_coords(ds, dataset_id)
 
     def test_all_datasets_have_time_coord(self):
         for dataset_id in dynamical_catalog.list():
