@@ -21,7 +21,7 @@ classifiers = [
 dependencies = [
     "xarray>=2025.1.2",
     "zarr~=3.2",
-    "icechunk~=2.0",
+    "icechunk~=2.1",
     "gribberish~=1.5",
 ]
 
